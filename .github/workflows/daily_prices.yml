@@ -1,0 +1,39 @@
+# ============================================================
+# Pokemon Market Indexes v2 - Daily Prices
+# ============================================================
+# Récupère les prix des cartes quotidiennement
+# Heure: 07h00 Paris (06h00 UTC)
+# Durée estimée: 30-45 minutes
+# ============================================================
+
+name: Daily Prices
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: 💰 Fetch Prices
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          PPT_API_KEY: ${{ secrets.PPT_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python scripts/fetch_prices.py

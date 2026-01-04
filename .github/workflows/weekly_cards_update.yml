@@ -1,0 +1,38 @@
+# ============================================================
+# Pokemon Market Indexes v2 - Weekly Cards Update
+# ============================================================
+# Met à jour le référentiel des cartes (nouveaux sets)
+# Heure: 04h00 Paris (03h00 UTC) le dimanche
+# ============================================================
+
+name: Weekly Cards Update
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'  # Dimanche 03h00 UTC
+  workflow_dispatch:
+
+jobs:
+  update-cards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: 🃏 Update Cards
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          PPT_API_KEY: ${{ secrets.PPT_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python scripts/fetch_cards.py

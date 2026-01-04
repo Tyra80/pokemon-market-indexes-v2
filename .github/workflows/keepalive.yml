@@ -1,0 +1,42 @@
+# ============================================================
+# Pokemon Market Indexes v2 - Keepalive
+# ============================================================
+# Ping la base tous les 5 jours pour éviter la pause Supabase
+# (Free tier pause après 1 semaine d'inactivité)
+# ============================================================
+
+name: Keepalive
+
+on:
+  schedule:
+    - cron: '0 12 */5 * *'  # Tous les 5 jours à 12h UTC
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: 🏓 Ping Database
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python -c "
+          from scripts.utils import get_db_client
+          client = get_db_client()
+          result = client.from_('sets').select('set_id').limit(1).execute()
+          print(f'✅ Keepalive OK - {len(result.data)} row(s)')
+          "

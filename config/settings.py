@@ -18,7 +18,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 PPT_API_KEY = os.getenv("PPT_API_KEY")
-PPT_BASE_URL = "https://www.pokemonpricetracker.com/api"
+PPT_BASE_URL = "https://www.pokemonpricetracker.com/api/v2"  # API v2 endpoint
 
 FRANKFURTER_URL = "https://api.frankfurter.dev/v1"
 
@@ -148,20 +148,12 @@ PPT_RATE_LIMIT = {
 }
 
 # ============================================================
-# Composite Price Configuration
+# Price Configuration
 # ============================================================
 
-# Pondération pour le prix composite
-PRICE_WEIGHTS = {
-    "cards": {
-        "us": 0.50,  # TCGplayer USD
-        "eu": 0.50,  # Cardmarket EUR (converti en USD)
-    },
-    "sealed": {
-        "us": 1.00,  # TCGplayer USD uniquement
-        "eu": 0.00,  # Pas de données EU pour sealed
-    },
-}
+# Note: Currently using TCGplayer USD prices only.
+# EUR prices from Cardmarket are not used in the current implementation.
+# If multi-market support is added in the future, define price weights here.
 
 # ============================================================
 # Outlier Detection
@@ -170,8 +162,8 @@ PRICE_WEIGHTS = {
 OUTLIER_RULES = {
     "min_price": 0.10,           # Prix minimum pour être éligible ($)
     "max_price": 100000,         # Prix maximum plausible ($)
-    "max_weekly_change": 0.80,   # ±80% max de variation hebdo
-    "max_us_eu_divergence": 2.0, # Écart max US/EU (100%)
+    # Note: max_weekly_change and max_us_eu_divergence were removed as they were not implemented
+    # If needed in the future, implement in calculate_index.py filter_outliers()
 }
 
 # ============================================================

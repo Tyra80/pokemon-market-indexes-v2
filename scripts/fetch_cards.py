@@ -20,14 +20,11 @@ from datetime import datetime
 # Imports locaux
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.utils import (
-    get_db_client, batch_upsert, 
+    get_db_client, batch_upsert,
     log_run_start, log_run_end, send_discord_notification, get_today,
     print_header, print_step, print_success, print_error
 )
-from config.settings import PPT_API_KEY, PPT_RATE_LIMIT
-
-# Base URL de l'API (v2)
-BASE_URL = "https://www.pokemonpricetracker.com/api/v2"
+from config.settings import PPT_API_KEY, PPT_BASE_URL, PPT_RATE_LIMIT
 
 # Headers d'authentification (comme dans la doc)
 HEADERS = {
@@ -35,31 +32,52 @@ HEADERS = {
 }
 
 
+# Maximum backoff time in seconds to prevent excessive waits
+MAX_BACKOFF_SECONDS = 60
+
+
 def api_request(endpoint: str, params: dict = None, max_retries: int = 3) -> dict:
     """
     Effectue une requête à l'API PokemonPriceTracker avec retry automatique.
+    Uses exponential backoff with a cap to prevent excessive wait times.
     """
-    url = f"{BASE_URL}{endpoint}"
-    
+    url = f"{PPT_BASE_URL}{endpoint}"
+
     for attempt in range(max_retries):
         try:
             response = requests.get(url, headers=HEADERS, params=params, timeout=60)
-            
-            # Si rate limit, attendre et réessayer
+
+            # Si rate limit, attendre et réessayer with capped exponential backoff
             if response.status_code == 429:
-                wait_time = 5 * (attempt + 1)  # 5s, 10s, 15s
-                print(f"   ⏳ Rate limit atteint, pause {wait_time}s...")
+                # Exponential backoff: 5s, 10s, 20s, 40s... capped at MAX_BACKOFF_SECONDS
+                wait_time = min(5 * (2 ** attempt), MAX_BACKOFF_SECONDS)
+                print(f"   ⏳ Rate limit atteint, pause {wait_time}s... (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait_time)
                 continue
-            
+
             response.raise_for_status()
             return response.json()
-            
+
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429 and attempt < max_retries - 1:
                 continue
+            print(f"   ❌ HTTP Error {response.status_code}: {str(e)[:100]}")
+            if attempt < max_retries - 1:
+                wait_time = min(5 * (2 ** attempt), MAX_BACKOFF_SECONDS)
+                print(f"   ⏳ Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
             raise
-    
+
+        except requests.exceptions.RequestException as e:
+            print(f"   ⚠️ Request error: {str(e)[:100]}")
+            if attempt < max_retries - 1:
+                wait_time = min(5 * (2 ** attempt), MAX_BACKOFF_SECONDS)
+                print(f"   ⏳ Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+            return None
+
     return None
 
 

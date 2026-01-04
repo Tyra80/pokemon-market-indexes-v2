@@ -82,7 +82,7 @@ def get_cards_with_prices(client, price_date: str) -> list:
         response = client.from_("card_prices_daily") \
             .select("card_id, market_price, nm_price, nm_listings, total_listings, liquidity_score") \
             .eq("price_date", price_date) \
-            .not_.is_("nm_price", "null") \
+            .neq("nm_price", "null") \
             .range(offset, offset + limit - 1) \
             .execute()
         
@@ -381,10 +381,15 @@ def calculate_index_laspeyres(client, index_code: str, constituents: list,
 # =============================================================================
 
 def save_constituents(client, index_code: str, month: str, constituents: list) -> int:
-    """Sauvegarde les constituants du mois."""
+    """
+    Sauvegarde les constituants du mois avec transaction safety.
+
+    Strategy: Insert first, then delete old entries only if insert succeeds.
+    This ensures we never lose data if the insert fails.
+    """
     if not constituents:
         return 0
-    
+
     rows = []
     for i, c in enumerate(constituents, 1):
         rows.append({
@@ -399,19 +404,49 @@ def save_constituents(client, index_code: str, month: str, constituents: list) -
             "weight": round(c.get("weight", 0), 8),
             "is_new": True,
         })
-    
-    # Supprime les anciens constituants pour ce mois
+
+    # Use upsert with on_conflict to atomically replace data
+    # This is safer than delete-then-insert as it's a single operation
+    result = batch_upsert(
+        client,
+        "constituents_monthly",
+        rows,
+        on_conflict="index_code,month,item_id"
+    )
+
+    if result["saved"] == 0 and result["failed"] > 0:
+        print(f"   ⚠️ Failed to save constituents: {result['failed']} errors")
+        return 0
+
+    # Clean up any old constituents that are no longer in the new list
+    # (e.g., if index size decreased or cards were removed)
+    current_item_ids = [c["card_id"] for c in constituents]
     try:
-        client.from_("constituents_monthly") \
-            .delete() \
+        # Get existing constituents for this index/month
+        existing = client.from_("constituents_monthly") \
+            .select("item_id") \
             .eq("index_code", index_code) \
             .eq("month", month) \
             .execute()
-    except:
-        pass
-    
-    # Insère les nouveaux
-    result = batch_upsert(client, "constituents_monthly", rows)
+
+        # Find items to remove (in DB but not in new list)
+        existing_ids = {row["item_id"] for row in existing.data}
+        ids_to_remove = existing_ids - set(current_item_ids)
+
+        if ids_to_remove:
+            # Delete old constituents that are no longer valid
+            for item_id in ids_to_remove:
+                client.from_("constituents_monthly") \
+                    .delete() \
+                    .eq("index_code", index_code) \
+                    .eq("month", month) \
+                    .eq("item_id", item_id) \
+                    .execute()
+            print(f"   🧹 Removed {len(ids_to_remove)} old constituents")
+    except Exception as e:
+        # Non-critical: old constituents remain but won't affect index calculation
+        print(f"   ⚠️ Could not clean old constituents: {e}")
+
     return result["saved"]
 
 

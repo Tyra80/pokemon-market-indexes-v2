@@ -1,8 +1,9 @@
 # ============================================================
 # Pokemon Market Indexes v2 - Daily FX Rates
 # ============================================================
-# Récupère les taux EUR/USD quotidiennement
-# Heure: 17h00 Paris (16h00 UTC)
+# Fetches EUR/USD exchange rates daily
+# Time: 17:00 Paris (16:00 UTC)
+# Reserved for future Cardmarket integration
 # ============================================================
 
 name: Daily FX Rates
@@ -29,9 +30,13 @@ jobs:
       - name: 📦 Install dependencies
         run: pip install -r requirements.txt
       
-      - name: 🔄 Fetch FX Rates
+      - name: 💱 Fetch FX Rates
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: python scripts/fetch_fx_rates.py
+      
+      - name: ✅ Log success
+        if: success()
+        run: echo "✅ FX rates fetched successfully"

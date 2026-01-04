@@ -1,15 +1,15 @@
 # ============================================================
 # Pokemon Market Indexes v2 - Keepalive
 # ============================================================
-# Ping la base tous les 5 jours pour éviter la pause Supabase
-# (Free tier pause après 1 semaine d'inactivité)
+# Pings the database every 5 days to prevent Supabase pause
+# (Free tier pauses after 1 week of inactivity)
 # ============================================================
 
 name: Keepalive
 
 on:
   schedule:
-    - cron: '0 12 */5 * *'  # Tous les 5 jours à 12h UTC
+    - cron: '0 12 */5 * *'  # Every 5 days at 12:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -38,5 +38,5 @@ jobs:
           from scripts.utils import get_db_client
           client = get_db_client()
           result = client.from_('sets').select('set_id').limit(1).execute()
-          print(f'✅ Keepalive OK - {len(result.data)} row(s)')
+          print(f'✅ Keepalive OK - Database is active')
           "

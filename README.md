@@ -1,23 +1,21 @@
 # 🎴 Pokemon Market Indexes v2
 
-Système automatisé de calcul d'indices de marché pour les cartes et produits scellés Pokémon TCG.
+Automated market index calculation system for Pokemon TCG rare cards.
 
-## 📊 Indices calculés
+## 📊 Indexes
 
-| Index | Description | Univers |
-|-------|-------------|---------|
-| **RARE_100** | Top 100 cartes rares | Cartes rarity ≥ Rare |
-| **RARE_500** | Top 500 cartes rares | Cartes rarity ≥ Rare |
-| **RARE_ALL** | Toutes cartes rares liquides | Cartes rarity ≥ Rare |
-| **SEALED_100** | Top 100 produits scellés | Booster boxes, ETB, etc. |
-| **SEALED_500** | Top 500 produits scellés | Booster boxes, ETB, etc. |
+| Index | Description | Universe |
+|-------|-------------|----------|
+| **RARE_100** | Top 100 rare cards | Cards with rarity ≥ Rare |
+| **RARE_500** | Top 500 rare cards | Cards with rarity ≥ Rare |
+| **RARE_ALL** | All liquid rare cards | Cards with rarity ≥ Rare |
 
 ## 🏗️ Architecture
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │ PokemonPrice    │────▶│    Supabase     │────▶│  Index Values   │
-│ Tracker API     │     │   (PostgreSQL)  │     │  (Weekly)       │
+│ Tracker API     │     │   (PostgreSQL)  │     │  (Daily)        │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
         │                       │
         │                       │
@@ -27,29 +25,31 @@ Système automatisé de calcul d'indices de marché pour les cartes et produits 
 └───────────────┘       └───────────────┘
 ```
 
-## 📁 Structure du projet
+## 📁 Project Structure
 
 ```
 pokemon-market-indexes-v2/
-├── .github/workflows/     # Automatisation GitHub Actions
+├── .github/workflows/      # GitHub Actions automation
 │   ├── daily_fx.yml
 │   ├── daily_prices.yml
-│   ├── weekly_index.yml
+│   ├── daily_index.yml
 │   └── weekly_cards_update.yml
-├── config/                # Configuration
+├── config/                 # Configuration
 │   └── settings.py
-├── docs/                  # Documentation
+├── docs/                   # Documentation
 │   ├── METHODOLOGY.md
 │   ├── DATABASE.md
 │   └── SETUP.md
-├── scripts/               # Scripts Python
+├── scripts/                # Python scripts
 │   ├── fetch_fx_rates.py
 │   ├── fetch_cards.py
 │   ├── fetch_prices.py
 │   ├── calculate_index.py
+│   ├── backfill_index.py
 │   └── utils.py
-├── sql/                   # Schémas SQL
-│   └── 001_schema.sql
+├── sql/                    # SQL schemas
+│   ├── 001_schema.sql
+│   └── 005_add_daily_volume.sql
 ├── .env.example
 ├── .gitignore
 ├── requirements.txt
@@ -58,78 +58,118 @@ pokemon-market-indexes-v2/
 
 ## 🚀 Quick Start
 
-### 1. Prérequis
+### 1. Prerequisites
 
 - Python 3.11+
-- Compte Supabase (gratuit)
-- Clé API PokemonPriceTracker (Business plan)
-- Compte GitHub
+- Supabase account (free tier)
+- PokemonPriceTracker API key (Business plan - $99/month)
+- GitHub account
 
 ### 2. Installation
 
 ```bash
-# Clone le repo
+# Clone the repo
 git clone https://github.com/YOUR_USERNAME/pokemon-market-indexes.git
 cd pokemon-market-indexes
 
-# Crée l'environnement virtuel
+# Create virtual environment
 python -m venv venv
 venv\Scripts\activate  # Windows
+source venv/bin/activate  # Linux/Mac
 
-# Installe les dépendances
+# Install dependencies
 pip install -r requirements.txt
 
-# Configure les variables d'environnement
+# Configure environment variables
 cp .env.example .env
-# Édite .env avec tes credentials
+# Edit .env with your credentials
 ```
 
-### 3. Setup base de données
+### 3. Database Setup
 
-1. Crée un projet Supabase
-2. Exécute `sql/001_schema.sql` dans l'éditeur SQL
-3. Configure les secrets GitHub
+1. Create a Supabase project
+2. Execute `sql/001_schema.sql` in the SQL Editor
+3. Execute `sql/005_add_daily_volume.sql` for volume tracking
+4. Configure GitHub secrets
 
-### 4. Premier run
+### 4. Initial Data Load
 
 ```bash
-# 1. Charge les taux de change
+# 1. Load FX rates (~1 min)
 python scripts/fetch_fx_rates.py
 
-# 2. Charge les cartes (~ 30 min)
+# 2. Load cards (~30 min)
 python scripts/fetch_cards.py
 
-# 3. Charge les prix (~ 45 min)
+# 3. Load prices with volume (~45 min)
 python scripts/fetch_prices.py
 
-# 4. Calcule les indices
-python scripts/calculate_index.py
+# 4. Calculate indexes
+python scripts/calculate_index.py --rebalance
 ```
 
-## 📅 Automatisation
+## 📅 Automation Schedule
 
-| Workflow | Fréquence | Heure (UTC) |
-|----------|-----------|-------------|
-| FX Rates | Quotidien | 16:00 |
-| Prices | Quotidien | 06:00 |
-| Index Calculation | Hebdo (dimanche) | 00:00 |
-| Cards Update | Hebdo (dimanche) | 03:00 |
+| Workflow | Frequency | Time (UTC) |
+|----------|-----------|------------|
+| FX Rates | Daily | 16:00 |
+| Prices | Daily | 06:00 |
+| Index Calculation | Daily | 07:00 |
+| Cards Update | Weekly (Sunday) | 03:00 |
 
-## 💰 Coûts mensuels
+## 🔬 Key Features
 
-| Service | Coût |
+### Smart Liquidity Calculation (B + C + D)
+
+The system uses a sophisticated 3-layer liquidity calculation:
+
+| Method | Usage | Description |
+|--------|-------|-------------|
+| **B** | Fallback | Listings-based liquidity when no volume data |
+| **C** | Primary | Volume-based with 7-day temporal decay |
+| **D** | Rebalancing | 30-day average volume for eligibility |
+
+### Volume Decay Weights (Method C)
+
+```python
+Day 0 (today):     1.00
+Day 1 (yesterday): 0.70
+Day 2:             0.50
+Day 3:             0.35
+Day 4:             0.25
+Day 5:             0.15
+Day 6:             0.10
+```
+
+### Index Calculation (Laspeyres Chain-Linking)
+
+```
+Index_t = Index_{t-1} × Σ(w_i × P_i,t) / Σ(w_i × P_i,t-1)
+```
+
+## 💰 Monthly Costs
+
+| Service | Cost |
 |---------|------|
-| Supabase | Gratuit |
-| GitHub Actions | Gratuit |
-| PokemonPriceTracker API | $99/mois |
-| **Total** | **~$99/mois** |
+| Supabase | Free |
+| GitHub Actions | Free |
+| PokemonPriceTracker API | $99/month |
+| **Total** | **~$99/month** |
 
 ## 📖 Documentation
 
-- [Méthodologie complète](docs/METHODOLOGY.md)
-- [Schéma base de données](docs/DATABASE.md)
-- [Guide de setup](docs/SETUP.md)
+- [Complete Methodology](docs/METHODOLOGY.md)
+- [Database Schema](docs/DATABASE.md)
+- [Setup Guide](docs/SETUP.md)
+
+## 📊 Current Data
+
+As of January 2026:
+- **Cards tracked**: ~26,000
+- **Rare cards (≥ Rare)**: ~13,000
+- **Daily prices**: ~9,500 per day
+- **Historical data**: 30+ days
 
 ## 📄 License
 
-MIT License - Voir LICENSE
+MIT License - See LICENSE

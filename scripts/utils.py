@@ -18,7 +18,12 @@ from config.settings import (
     SUPABASE_KEY, 
     PPT_API_KEY, 
     PPT_BASE_URL,
-    DISCORD_WEBHOOK_URL
+    DISCORD_WEBHOOK_URL,
+    CONDITION_WEIGHTS,
+    VOLUME_DECAY_WEIGHTS,
+    VOLUME_DECAY_SUM,
+    VOLUME_CAP,
+    LIQUIDITY_CAP,
 )
 
 
@@ -29,10 +34,10 @@ from config.settings import (
 def get_db_client() -> SyncPostgrestClient:
     """
     Creates and returns a Supabase client.
-
+    
     Returns:
         SyncPostgrestClient: Client connected to Supabase
-
+    
     Raises:
         ValueError: If credentials are missing
     """
@@ -55,14 +60,14 @@ def get_db_client() -> SyncPostgrestClient:
 def ppt_request(endpoint: str, params: dict = None) -> dict:
     """
     Makes a request to the PokemonPriceTracker API.
-
+    
     Args:
         endpoint: API endpoint (e.g.: "/v2/cards")
         params: Request parameters
-
+    
     Returns:
         dict: JSON response
-
+    
     Raises:
         requests.HTTPError: If the request fails
     """
@@ -82,18 +87,18 @@ def ppt_request(endpoint: str, params: dict = None) -> dict:
 # Database Pagination Helper
 # ============================================================
 
-def fetch_all_paginated(client, table: str, select: str = "*",
+def fetch_all_paginated(client, table: str, select: str = "*", 
                         filters: dict = None, page_size: int = 1000) -> list:
     """
     Fetches all rows from a table with pagination.
-
+    
     Args:
         client: Supabase client
         table: Table name
         select: Columns to select
         filters: Filters to apply {"column": "value"}
         page_size: Page size
-
+    
     Returns:
         list: All rows
     """
@@ -102,7 +107,7 @@ def fetch_all_paginated(client, table: str, select: str = "*",
     
     while True:
         query = client.from_(table).select(select).range(offset, offset + page_size - 1)
-
+        
         # Apply filters
         if filters:
             for col, val in filters.items():
@@ -127,30 +132,27 @@ def fetch_all_paginated(client, table: str, select: str = "*",
 # Batch Insert Helper
 # ============================================================
 
-def batch_upsert(client, table: str, rows: list,
+def batch_upsert(client, table: str, rows: list, 
                  batch_size: int = 500, on_conflict: str = None) -> dict:
     """
     Inserts rows in batches with upsert.
-
+    
     Args:
         client: Supabase client
         table: Table name
         rows: Rows to insert
         batch_size: Batch size
         on_conflict: Columns for upsert
-
+    
     Returns:
-        dict: {"saved": int, "failed": int, "errors": list}
+        dict: {"saved": int, "failed": int}
     """
     saved = 0
     failed = 0
-    errors = []
-
-    total_batches = (len(rows) + batch_size - 1) // batch_size
-
-    for batch_num, i in enumerate(range(0, len(rows), batch_size), 1):
+    
+    for i in range(0, len(rows), batch_size):
         batch = rows[i:i + batch_size]
-
+        
         try:
             if on_conflict:
                 client.from_(table).upsert(batch, on_conflict=on_conflict).execute()
@@ -158,13 +160,7 @@ def batch_upsert(client, table: str, rows: list,
                 client.from_(table).upsert(batch).execute()
             saved += len(batch)
         except Exception as e:
-            error_msg = str(e)
-            print(f"   ⚠️ Batch {batch_num}/{total_batches} failed for table '{table}': {error_msg[:100]}")
-
-            # Fall back to one-by-one insert with error tracking
-            batch_saved = 0
-            batch_failed = 0
-
+            # On error, try one by one
             for row in batch:
                 try:
                     if on_conflict:
@@ -172,31 +168,10 @@ def batch_upsert(client, table: str, rows: list,
                     else:
                         client.from_(table).upsert(row).execute()
                     saved += 1
-                    batch_saved += 1
-                except Exception as row_error:
+                except:
                     failed += 1
-                    batch_failed += 1
-                    # Track first few errors for debugging
-                    if len(errors) < 5:
-                        # Get identifier from row for debugging
-                        row_id = row.get("card_id") or row.get("item_id") or row.get("id") or "unknown"
-                        errors.append({
-                            "row_id": row_id,
-                            "error": str(row_error)[:200]
-                        })
-
-            if batch_failed > 0:
-                print(f"   ⚠️ Individual insert: {batch_saved} saved, {batch_failed} failed")
-
-    # Log summary if there were failures
-    if failed > 0:
-        print(f"   ⚠️ batch_upsert to '{table}': {saved} saved, {failed} failed")
-        if errors:
-            print(f"   ⚠️ Sample errors:")
-            for err in errors[:3]:
-                print(f"      - {err['row_id']}: {err['error'][:80]}")
-
-    return {"saved": saved, "failed": failed, "errors": errors}
+    
+    return {"saved": saved, "failed": failed}
 
 
 # ============================================================
@@ -206,9 +181,9 @@ def batch_upsert(client, table: str, rows: list,
 def log_run_start(client, run_type: str) -> int:
     """
     Records the start of a run.
-
+    
     Returns:
-        int: Run ID, or None if logging failed
+        int: Run ID
     """
     try:
         response = client.from_("run_logs").insert({
@@ -216,12 +191,11 @@ def log_run_start(client, run_type: str) -> int:
             "status": "running"
         }).execute()
         return response.data[0]["id"]
-    except Exception as e:
-        print(f"   ⚠️ Could not log run start: {str(e)[:100]}")
+    except:
         return None
 
 
-def log_run_end(client, run_id: int, status: str,
+def log_run_end(client, run_id: int, status: str, 
                 records_processed: int = 0, records_failed: int = 0,
                 error_message: str = None, details: dict = None):
     """
@@ -229,7 +203,7 @@ def log_run_end(client, run_id: int, status: str,
     """
     if not run_id:
         return
-
+    
     try:
         update_data = {
             "finished_at": datetime.utcnow().isoformat(),
@@ -238,24 +212,24 @@ def log_run_end(client, run_id: int, status: str,
             "records_failed": records_failed,
         }
         if error_message:
-            update_data["error_message"] = error_message[:500]
+            update_data["error_message"] = error_message
         if details:
             update_data["details"] = details
-
+        
         client.from_("run_logs").update(update_data).eq("id", run_id).execute()
-    except Exception as e:
-        print(f"   ⚠️ Could not log run end: {str(e)[:100]}")
+    except:
+        pass
 
 
 # ============================================================
 # Discord Notifications
 # ============================================================
 
-def send_discord_notification(title: str, description: str,
+def send_discord_notification(title: str, description: str, 
                               color: int = 5763719, success: bool = True):
     """
     Sends a Discord notification.
-
+    
     Args:
         title: Message title
         description: Description
@@ -264,26 +238,24 @@ def send_discord_notification(title: str, description: str,
     """
     if not DISCORD_WEBHOOK_URL:
         return
-
+    
     if not success:
         color = 15548997  # Red
-
+    
     payload = {
         "embeds": [{
             "title": title,
-            "description": description[:2000],  # Discord limit
+            "description": description,
             "color": color,
             "timestamp": datetime.utcnow().isoformat(),
             "footer": {"text": "Pokemon Market Indexes v2"}
         }]
     }
-
+    
     try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        # Log but don't fail the main process
-        print(f"   ⚠️ Discord notification failed: {str(e)[:100]}")
+        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+    except:
+        pass
 
 
 # ============================================================
@@ -346,3 +318,144 @@ def print_progress(current: int, total: int, prefix: str = ""):
     """Displays progress."""
     pct = current * 100 // total if total > 0 else 0
     print(f"   ⏳ {prefix}{current}/{total} ({pct}%)")
+
+
+# ============================================================
+# Liquidity Calculation (B + C + D)
+# ============================================================
+
+def calculate_liquidity_from_listings(nm_listings: int, lp_listings: int = 0, 
+                                       mp_listings: int = 0, hp_listings: int = 0,
+                                       dmg_listings: int = 0) -> float:
+    """
+    Calculates liquidity score based on listings (Method B - fallback).
+    
+    Formula: weighted_listings / LIQUIDITY_CAP
+    """
+    weighted = (
+        (nm_listings or 0) * CONDITION_WEIGHTS.get("Near Mint", 1.0) +
+        (lp_listings or 0) * CONDITION_WEIGHTS.get("Lightly Played", 0.8) +
+        (mp_listings or 0) * CONDITION_WEIGHTS.get("Moderately Played", 0.6) +
+        (hp_listings or 0) * CONDITION_WEIGHTS.get("Heavily Played", 0.4) +
+        (dmg_listings or 0) * CONDITION_WEIGHTS.get("Damaged", 0.2)
+    )
+    
+    return min(weighted / LIQUIDITY_CAP, 1.0)
+
+
+def calculate_liquidity_from_volume(volumes: list) -> float:
+    """
+    Calculates liquidity score with temporal decay (Method C).
+    
+    Args:
+        volumes: List of volumes for the last 7 days [day0, day-1, day-2, ..., day-6]
+                 May contain None for missing days
+    
+    Returns:
+        float: Liquidity score between 0 and 1
+    """
+    if not volumes:
+        return 0.0
+    
+    weighted_volume = 0.0
+    weight_sum = 0.0
+    
+    for i, vol in enumerate(volumes[:7]):  # Max 7 days
+        if vol is not None and vol > 0:
+            weight = VOLUME_DECAY_WEIGHTS.get(i, 0.05)
+            weighted_volume += vol * weight
+            weight_sum += weight
+    
+    if weight_sum == 0:
+        return 0.0
+    
+    # Normalize by sum of weights used and cap
+    normalized_volume = weighted_volume / weight_sum
+    
+    return min(normalized_volume / VOLUME_CAP, 1.0)
+
+
+def calculate_liquidity_smart(client, card_id: str, current_date: str,
+                               nm_listings: int = 0, lp_listings: int = 0,
+                               mp_listings: int = 0, hp_listings: int = 0,
+                               dmg_listings: int = 0) -> tuple:
+    """
+    Calculates smart liquidity score (B + C combined).
+    
+    Priority:
+    1. If volume history available → Method C (decay)
+    2. Otherwise → Method B (listings)
+    
+    Args:
+        client: Supabase client
+        card_id: Card ID
+        current_date: Current date (YYYY-MM-DD)
+        nm_listings, lp_listings, etc.: Current listings (fallback)
+    
+    Returns:
+        tuple: (liquidity_score, method_used)
+    """
+    from datetime import datetime, timedelta
+    
+    # Try to get volumes for last 7 days
+    try:
+        current = datetime.strptime(current_date, "%Y-%m-%d").date()
+        dates = [(current - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+        
+        # Query to get volumes
+        response = client.from_("card_prices_daily") \
+            .select("price_date, daily_volume") \
+            .eq("card_id", card_id) \
+            .in_("price_date", dates) \
+            .execute()
+        
+        if response.data:
+            # Organize volumes by date
+            volumes_by_date = {r["price_date"]: r.get("daily_volume") for r in response.data}
+            volumes = [volumes_by_date.get(d) for d in dates]
+            
+            # Count days with volume
+            valid_volumes = [v for v in volumes if v is not None and v > 0]
+            
+            if len(valid_volumes) >= 2:  # At least 2 days with data
+                score = calculate_liquidity_from_volume(volumes)
+                return round(score, 4), "volume_decay"
+    
+    except Exception as e:
+        pass  # Fallback to listings
+    
+    # Fallback to listings
+    score = calculate_liquidity_from_listings(nm_listings, lp_listings, mp_listings, hp_listings, dmg_listings)
+    return round(score, 4), "listings_fallback"
+
+
+def get_avg_volume_30d(client, card_id: str, current_date: str) -> float:
+    """
+    Calculates average volume over last 30 days (Method D - for rebalancing).
+    
+    Returns:
+        float: Average daily volume (0 if no data)
+    """
+    from datetime import datetime, timedelta
+    
+    try:
+        current = datetime.strptime(current_date, "%Y-%m-%d").date()
+        start_date = (current - timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        response = client.from_("card_prices_daily") \
+            .select("daily_volume") \
+            .eq("card_id", card_id) \
+            .gte("price_date", start_date) \
+            .lte("price_date", current_date) \
+            .not_.is_("daily_volume", "null") \
+            .execute()
+        
+        if response.data:
+            volumes = [r["daily_volume"] for r in response.data if r["daily_volume"]]
+            if volumes:
+                return sum(volumes) / 30  # Average over 30 days
+        
+        return 0.0
+        
+    except Exception:
+        return 0.0

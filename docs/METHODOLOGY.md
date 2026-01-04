@@ -1,241 +1,298 @@
-# 📈 Méthodologie - Pokemon Market Indexes v2
+# 📈 Methodology - Pokemon Market Indexes v2
 
-Documentation complète de la méthodologie de calcul des indices.
-
----
-
-## Vue d'ensemble
-
-Les Pokemon Market Indexes sont une famille d'indices conçus pour mesurer la performance du marché des cartes et produits scellés Pokémon TCG.
-
-### Principes fondamentaux
-
-1. **Transparence** - Méthodologie publique et reproductible
-2. **Liquidité** - Focus sur les items réellement échangés
-3. **Anti-manipulation** - Filtres contre les outliers et le hype court terme
-4. **Global** - Prix composite US + EU
+Complete methodology documentation for index calculation.
 
 ---
 
-## Les 5 Indices
+## Overview
 
-| Index | Univers | Taille | Description |
-|-------|---------|--------|-------------|
-| **RARE_100** | Cartes rares | 100 | Top 100 cartes par capitalisation |
-| **RARE_500** | Cartes rares | 500 | Top 500 cartes par capitalisation |
-| **RARE_ALL** | Cartes rares | Variable | Toutes les cartes liquides |
-| **SEALED_100** | Scellés | 100 | Top 100 produits scellés |
-| **SEALED_500** | Scellés | 500 | Top 500 produits scellés |
+Pokemon Market Indexes are a family of indexes designed to measure the performance of the Pokemon TCG rare cards market.
 
----
+### Core Principles
 
-## Sources de données
-
-### Prix
-
-| Source | Marché | Devise | Utilisation |
-|--------|--------|--------|-------------|
-| TCGplayer | US | USD | Prix Near Mint, listings |
-| Cardmarket | EU | EUR | Prix tendance, moyennes |
-| eBay | Global | USD | Prix gradés (exclus) |
-
-### Taux de change
-
-- **Source** : BCE via Frankfurter API
-- **Fréquence** : Quotidien
-- **Conversion** : EUR → USD
+1. **Transparency** - Public and reproducible methodology
+2. **Liquidity** - Focus on items that are actually traded
+3. **Anti-manipulation** - Filters against outliers and short-term hype
+4. **Real Volume** - Liquidity based on actual sales, not just listings
 
 ---
 
-## Critères d'éligibilité
+## The 3 Indexes
 
-### Cartes (RARE_100/500/ALL)
+| Index | Universe | Size | Description |
+|-------|----------|------|-------------|
+| **RARE_100** | Rare cards | 100 | Top 100 cards by ranking score |
+| **RARE_500** | Rare cards | 500 | Top 500 cards by ranking score |
+| **RARE_ALL** | Rare cards | Variable | All liquid rare cards |
 
-| Critère | Valeur |
-|---------|--------|
-| Rareté minimum | ≥ Rare |
-| Maturité | ≥ 60 jours depuis sortie du set |
-| Liquidité (entrée) | Score ≥ 0.45 - 0.60 selon index |
-| Liquidité (maintien) | Score ≥ 0.35 - 0.50 selon index |
-| Prix minimum | ≥ $0.10 |
-| Prix maximum | ≤ $100,000 |
+---
 
-### Produits scellés (SEALED_100/500)
+## Data Sources
 
-| Critère | Valeur |
-|---------|--------|
-| Types | Booster Box, ETB, Bundle, Collection |
-| Maturité | ≥ 90 jours depuis sortie |
-| Liquidité | Même seuils que les cartes |
+### Prices
+
+| Source | Market | Currency | Data |
+|--------|--------|----------|------|
+| TCGplayer (via PokemonPriceTracker) | US | USD | NM price, listings, **sales volume** |
+
+### Exchange Rates
+
+- **Source**: ECB via Frankfurter API
+- **Frequency**: Daily
+- **Conversion**: EUR → USD (reserved for future Cardmarket integration)
+
+---
+
+## Eligibility Criteria
+
+### Cards (RARE_100/500/ALL)
+
+| Criterion | Value |
+|-----------|-------|
+| Minimum rarity | ≥ Rare |
+| Maturity | ≥ 60 days since set release |
+| Liquidity (entry) | Score ≥ 0.40 - 0.60 depending on index |
+| Liquidity (maintenance) | Score ≥ 0.30 - 0.45 for existing constituents |
+| Minimum price | ≥ $0.10 |
+| Maximum price | ≤ $100,000 |
+
+### Eligible Rarities
+
+```
+Rare, Rare Holo, Rare Holo EX, Rare Holo GX, Rare Holo V, 
+Rare VMAX, Rare VSTAR, Rare Ultra, Rare Secret, Rare Rainbow, 
+Rare Shiny, Double Rare, Ultra Rare, Illustration Rare, 
+Special Illustration Rare, Hyper Rare, Shiny Rare, 
+Shiny Ultra Rare, ACE SPEC Rare
+```
 
 ### Exclusions
 
-- ❌ Cartes gradées (PSA, BGS, CGC)
-- ❌ Cartes de rareté < Rare (Common, Uncommon)
-- ❌ Items sans prix sur au moins un marché
-- ❌ Outliers (variation > ±80% hebdo)
+- ❌ Graded cards (PSA, BGS, CGC)
+- ❌ Cards with rarity < Rare (Common, Uncommon)
+- ❌ Items without price data
+- ❌ Outliers (price < $0.10 or > $100,000)
 
 ---
 
-## Calcul du prix composite
+## Liquidity Calculation (B + C + D System)
 
-### Cartes
+### Overview
 
-```
-Si TCGplayer ET Cardmarket disponibles:
-    Composite = 0.50 × TCG_NM_Price + 0.50 × (CM_Trend × FX_Rate)
+The system uses a sophisticated 3-layer approach to calculate liquidity:
 
-Si seulement TCGplayer:
-    Composite = TCG_NM_Price
+| Method | Layer | Usage |
+|--------|-------|-------|
+| **B** | Fallback | Listings-based when no volume data available |
+| **C** | Primary | Volume-based with 7-day temporal decay |
+| **D** | Rebalancing | 30-day average volume for monthly eligibility |
 
-Si seulement Cardmarket:
-    Composite = CM_Trend × FX_Rate
-```
+### Method B: Listings-Based (Fallback)
 
-### Produits scellés
-
-```
-Composite = TCG_Price  (USD uniquement, pas de données EU)
-```
-
----
-
-## Calcul du score de liquidité
-
-### Signaux utilisés
-
-| Signal | Poids | Source | Description |
-|--------|-------|--------|-------------|
-| NM Listings | 50% | TCGplayer | Nombre de listings Near Mint |
-| Total Listings | 30% | TCGplayer | Profondeur du marché |
-| Multi-condition | 20% | TCGplayer | Présence de plusieurs conditions |
-
-### Formule
+Used when volume data is not available:
 
 ```python
-# Normalisation (0-1)
-nm_score = min(nm_listings / 20, 1.0)
-total_score = min(total_listings / 50, 1.0)
-multi_score = 1.0 if conditions >= 3 else (0.5 if conditions >= 2 else 0.0)
+# Condition weights
+CONDITION_WEIGHTS = {
+    "Near Mint": 1.0,
+    "Lightly Played": 0.8,
+    "Moderately Played": 0.6,
+    "Heavily Played": 0.4,
+    "Damaged": 0.2,
+}
 
-# Score composite
-liquidity_score = 0.50 × nm_score + 0.30 × total_score + 0.20 × multi_score
+# Weighted listings calculation
+weighted_listings = (
+    nm_listings × 1.0 +
+    lp_listings × 0.8 +
+    mp_listings × 0.6 +
+    hp_listings × 0.4 +
+    dmg_listings × 0.2
+)
+
+# Score (capped at 1.0)
+liquidity_score = min(weighted_listings / 100, 1.0)
 ```
 
-### Interprétation
+### Method C: Volume-Based with Temporal Decay (Primary)
 
-| Score | Interprétation |
+Uses actual sales volume with exponential decay:
+
+```python
+# Decay weights (more recent = more weight)
+VOLUME_DECAY_WEIGHTS = {
+    0: 1.00,   # Today
+    1: 0.70,   # Yesterday
+    2: 0.50,   # 2 days ago
+    3: 0.35,   # 3 days ago
+    4: 0.25,   # 4 days ago
+    5: 0.15,   # 5 days ago
+    6: 0.10,   # 6 days ago
+}
+
+# Weighted volume calculation
+weighted_volume = Σ(volume_day_i × weight_i)
+
+# Normalized by sum of weights used
+normalized_volume = weighted_volume / Σ(weights)
+
+# Score (50 sales/day = max score)
+liquidity_score = min(normalized_volume / 50, 1.0)
+```
+
+### Method D: 30-Day Average Volume (Rebalancing)
+
+Used for monthly rebalancing eligibility:
+
+```python
+avg_volume_30d = sum(daily_volumes) / 30
+
+# Minimum threshold for eligibility
+MIN_AVG_VOLUME_30D = 0.5  # 0.5 sales/day ≈ 15 sales/month
+```
+
+### Smart Liquidity Logic
+
+```
+1. If volume history available (≥2 days):
+   → Use Method C (volume decay)
+
+2. Otherwise:
+   → Use Method B (listings fallback)
+
+3. For rebalancing:
+   → Apply Method D filter (30-day avg ≥ 0.5)
+```
+
+### Score Interpretation
+
+| Score | Interpretation |
 |-------|----------------|
-| ≥ 0.70 | Très liquide |
-| 0.50 - 0.69 | Liquide |
+| ≥ 0.70 | Very liquid |
+| 0.50 - 0.69 | Liquid |
 | 0.35 - 0.49 | Borderline |
-| < 0.35 | Illiquide |
+| < 0.35 | Illiquid |
 
 ---
 
-## Calcul du ranking score
+## Ranking Score
 
-Le ranking score détermine la position dans l'index :
+The ranking score determines position in the index:
 
 ```
-Ranking_Score = Composite_Price × Liquidity_Score
+Ranking_Score = Price × Liquidity_Score
 ```
 
-Ce score favorise les items à la fois chers ET liquides.
+This score favors items that are both expensive AND liquid.
 
 ---
 
-## Calcul des poids
+## Weight Calculation
 
-Chaque constituant a un poids proportionnel à son ranking score :
+Each constituent has a weight proportional to its price (price-weighted):
 
 ```
-Weight_i = Ranking_Score_i / Σ(Ranking_Scores)
+Weight_i = Price_i / Σ(Prices)
 
 Σ(Weights) = 1.0
 ```
 
 ---
 
-## Calcul de la valeur de l'index
+## Index Value Calculation (Laspeyres Chain-Linking)
 
-### Première valeur
-
-```
-Index_Value_0 = 100.0  (base)
-```
-
-### Valeurs suivantes (chain-linking)
+### Base Value
 
 ```
-Index_Value_t = Index_Value_{t-1} × (1 + Return_t)
-
-où Return_t = Σ(Weight_i × Return_i)
-   Return_i = (Price_i,t - Price_i,t-1) / Price_i,t-1
+Index_Value_0 = 100.0  (inception)
 ```
+
+### Subsequent Values
+
+```
+Index_Value_t = Index_Value_{t-1} × Ratio_t
+
+where:
+  Ratio_t = Σ(w_i × P_i,t) / Σ(w_i × P_i,t-1)
+  w_i = constituent weight (fixed during period)
+  P_i,t = constituent price at time t
+```
+
+### Chain-Linking
+
+When rebalancing occurs, the new weights are applied while preserving index continuity through chain-linking.
 
 ---
 
-## Rebalancement
+## Rebalancing
 
-### Fréquence
+### Frequency
 
-- **Calcul de l'index** : Hebdomadaire (dimanche)
-- **Rebalancement** : Mensuel (1er du mois)
+- **Index calculation**: Daily
+- **Rebalancing**: Monthly (1st of month)
 
-### Processus de rebalancement
+### Rebalancing Process
 
-1. Calcul des scores pour toutes les cartes éligibles
-2. Tri par ranking score décroissant
-3. Sélection du top N (selon index)
-4. Calcul des nouveaux poids
-5. Chain-linking pour préserver la continuité
+1. Calculate scores for all eligible cards
+2. Apply Method D filter (30-day avg volume ≥ 0.5)
+3. Sort by ranking score descending
+4. Select top N (based on index)
+5. Calculate new weights
+6. Chain-link to preserve continuity
 
-### Tolérance de continuité
+### Continuity Tolerance
 
-Pour éviter le turnover excessif :
-- **Seuil d'entrée** : Liquidity ≥ 0.60 (RARE_100)
-- **Seuil de maintien** : Liquidity ≥ 0.45 (constituants existants)
-
----
-
-## Détection des outliers
-
-### Règles appliquées
-
-| Règle | Seuil | Action |
-|-------|-------|--------|
-| Prix trop bas | < $0.10 | Exclusion |
-| Prix trop haut | > $100,000 | Exclusion |
-| Variation extrême | > ±80% hebdo | Flag / Exclusion |
-| Divergence US/EU | > 100% | Investigation |
+To avoid excessive turnover:
+- **Entry threshold**: Liquidity ≥ 0.60 (RARE_100)
+- **Maintenance threshold**: Liquidity ≥ 0.45 (existing constituents)
 
 ---
 
-## Gouvernance
+## Outlier Detection
+
+### Rules Applied
+
+| Rule | Threshold | Action |
+|------|-----------|--------|
+| Price too low | < $0.10 | Exclusion |
+| Price too high | > $100,000 | Exclusion |
+
+---
+
+## Calculation Schedule
+
+| Operation | Frequency | Time |
+|-----------|-----------|------|
+| Price fetch | Daily | 06:00 UTC |
+| Index calculation | Daily | 07:00 UTC |
+| Rebalancing | Monthly | 1st of month |
+
+---
+
+## Governance
 
 ### Versioning
 
-- **Méthodologie actuelle** : v2.0
-- **Calibration liquidité** : v1.0 (frozen)
+- **Current methodology**: v2.0
+- **Liquidity calibration**: v1.0 (frozen)
 
-### Modifications
+### Changes
 
-- Aucune modification rétroactive des valeurs publiées
-- Changements documentés et datés
-- Période de notification avant changements majeurs
+- No retroactive modification of published values
+- Changes documented and dated
+- Notification period before major changes
 
 ---
 
-## Limites connues
+## Known Limitations
 
-1. **Liquidité estimée** - Basée sur les listings, pas les ventes réelles
-2. **Sealed USD only** - Pas de prix EU pour les produits scellés
-3. **Latence** - Prix mis à jour quotidiennement, pas en temps réel
-4. **Variants** - Traitement simplifié des variantes holo/reverse
+1. **US Market Only** - Currently TCGplayer data only (no Cardmarket/EU)
+2. **Volume Data Coverage** - Not all cards have sales volume every day
+3. **Latency** - Prices updated daily, not real-time
+4. **Variants** - Simplified treatment of holo/reverse variants
 
 ---
 
 ## Disclaimer
 
-Les Pokemon Market Indexes sont fournis à titre informatif uniquement. Ils ne constituent pas un conseil d'investissement. Les performances passées ne garantissent pas les résultats futurs.
+Pokemon Market Indexes are provided for informational purposes only. They do not constitute investment advice. Past performance does not guarantee future results.

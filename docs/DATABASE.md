@@ -1,30 +1,22 @@
-# 📊 Base de Données - Pokemon Market Indexes v2
+# 📊 Database Schema - Pokemon Market Indexes v2
 
-Documentation du schéma de base de données.
+Complete database schema documentation.
 
 ---
 
-## Vue d'ensemble
+## Overview
 
 ```
 ┌─────────────┐     ┌─────────────────────┐     ┌───────────────────┐
 │    sets     │────▶│       cards         │────▶│  card_prices_daily│
 └─────────────┘     └─────────────────────┘     └───────────────────┘
-       │                                                  │
-       │            ┌─────────────────────┐               │
-       └───────────▶│  sealed_products    │               │
-                    └─────────────────────┘               │
-                              │                           │
-                    ┌─────────▼─────────┐                 │
-                    │sealed_prices_daily│                 │
-                    └───────────────────┘                 │
                                                           │
 ┌─────────────────┐                          ┌────────────▼────────┐
 │ fx_rates_daily  │                          │constituents_monthly │
 └─────────────────┘                          └─────────────────────┘
                                                           │
                                              ┌────────────▼────────┐
-                                             │index_values_weekly  │
+                                             │ index_values_daily  │
                                              └─────────────────────┘
 
 ┌─────────────────┐
@@ -34,170 +26,196 @@ Documentation du schéma de base de données.
 
 ---
 
-## Tables de référentiel (statiques)
+## Reference Tables (Static)
 
-### `sets` - Extensions Pokémon
+### `sets` - Pokemon Sets/Expansions
 
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `set_id` | TEXT (PK) | Identifiant unique (ex: "sv08") |
-| `name` | TEXT | Nom de l'extension |
-| `series` | TEXT | Série (ex: "Scarlet & Violet") |
-| `release_date` | DATE | Date de sortie |
-| `total_cards` | INTEGER | Nombre de cartes dans le set |
+| Column | Type | Description |
+|--------|------|-------------|
+| `set_id` | TEXT (PK) | Unique identifier (e.g., "sv08") |
+| `name` | TEXT | Set name |
+| `series` | TEXT | Series (e.g., "Scarlet & Violet") |
+| `release_date` | DATE | Release date |
+| `total_cards` | INTEGER | Number of cards in set |
 
-### `cards` - Cartes Pokémon
+### `cards` - Pokemon Cards
 
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `card_id` | TEXT (PK) | Identifiant unique |
-| `ppt_id` | TEXT | ID PokemonPriceTracker |
-| `tcgplayer_id` | TEXT | ID TCGplayer |
-| `name` | TEXT | Nom de la carte |
-| `set_id` | TEXT (FK) | Référence vers `sets` |
-| `card_number` | TEXT | Numéro dans le set |
-| `rarity` | TEXT | Rareté |
-| `variant` | TEXT | Variante (normal, holo, reverse) |
-| `is_eligible` | BOOLEAN | Éligible pour les indices |
+| Column | Type | Description |
+|--------|------|-------------|
+| `card_id` | TEXT (PK) | Unique identifier |
+| `ppt_id` | TEXT | PokemonPriceTracker ID |
+| `tcgplayer_id` | TEXT | TCGplayer ID |
+| `name` | TEXT | Card name |
+| `set_id` | TEXT (FK) | Reference to `sets` |
+| `card_number` | TEXT | Number in set |
+| `rarity` | TEXT | Rarity level |
+| `variant` | TEXT | Variant (normal, holo, reverse) |
+| `is_eligible` | BOOLEAN | Eligible for indexes |
 
-### `sealed_products` - Produits scellés
-
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `product_id` | TEXT (PK) | Identifiant unique |
-| `name` | TEXT | Nom du produit |
-| `set_id` | TEXT (FK) | Set associé |
-| `product_type` | TEXT | Type (Booster Box, ETB, etc.) |
-| `release_date` | DATE | Date de sortie |
+**Eligible Rarities:** Rare, Rare Holo, Rare Holo EX, Rare Holo GX, Rare Holo V, Rare VMAX, Rare VSTAR, Rare Ultra, Rare Secret, Rare Rainbow, Rare Shiny, Double Rare, Ultra Rare, Illustration Rare, Special Illustration Rare, Hyper Rare, Shiny Rare, Shiny Ultra Rare, ACE SPEC Rare
 
 ---
 
-## Tables de données (dynamiques)
+## Data Tables (Dynamic)
 
-### `fx_rates_daily` - Taux de change
+### `fx_rates_daily` - Exchange Rates
 
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `rate_date` | DATE (PK) | Date du taux |
-| `eurusd` | NUMERIC | Taux EUR → USD |
+| Column | Type | Description |
+|--------|------|-------------|
+| `rate_date` | DATE (PK) | Rate date |
+| `eurusd` | NUMERIC | EUR → USD rate |
 | `source` | TEXT | Source (ecb) |
 
-### `card_prices_daily` - Prix des cartes
+### `card_prices_daily` - Card Prices
 
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `price_date` | DATE | Date du prix |
-| `card_id` | TEXT (FK) | Référence carte |
-| **TCGplayer** | | |
-| `tcg_market_price` | NUMERIC | Prix marché |
-| `tcg_nm_price` | NUMERIC | Prix Near Mint |
-| `tcg_nm_listings` | INTEGER | Nb listings NM |
-| `tcg_total_listings` | INTEGER | Nb listings total |
-| **Cardmarket** | | |
-| `cm_trend_price` | NUMERIC | Prix tendance (EUR) |
-| `cm_avg7` | NUMERIC | Moyenne 7 jours |
-| `cm_avg30` | NUMERIC | Moyenne 30 jours |
-| **Calculé** | | |
-| `composite_price` | NUMERIC | Prix composite (USD) |
-| `liquidity_score_custom` | NUMERIC | Score liquidité 0-1 |
+| Column | Type | Description |
+|--------|------|-------------|
+| `price_date` | DATE | Price date |
+| `card_id` | TEXT (FK) | Card reference |
+| **Main Prices** | | |
+| `market_price` | NUMERIC | Market price (USD) |
+| `low_price` | NUMERIC | Low price |
+| `mid_price` | NUMERIC | Mid price |
+| `high_price` | NUMERIC | High price |
+| **By Condition** | | |
+| `nm_price` | NUMERIC | Near Mint price |
+| `nm_listings` | INTEGER | NM listings count |
+| `lp_price` | NUMERIC | Lightly Played price |
+| `lp_listings` | INTEGER | LP listings count |
+| `mp_price` | NUMERIC | Moderately Played price |
+| `mp_listings` | INTEGER | MP listings count |
+| `hp_price` | NUMERIC | Heavily Played price |
+| `hp_listings` | INTEGER | HP listings count |
+| `dmg_price` | NUMERIC | Damaged price |
+| `dmg_listings` | INTEGER | Damaged listings count |
+| **Volume (NEW)** | | |
+| `daily_volume` | INTEGER | Total sales volume for the day |
+| `nm_volume` | INTEGER | Near Mint sales volume |
+| `lp_volume` | INTEGER | Lightly Played sales volume |
+| `mp_volume` | INTEGER | Moderately Played sales volume |
+| `hp_volume` | INTEGER | Heavily Played sales volume |
+| `dmg_volume` | INTEGER | Damaged sales volume |
+| **Calculated** | | |
+| `total_listings` | INTEGER | Total listings count |
+| `liquidity_score` | NUMERIC | Liquidity score 0-1 |
+| `last_updated_api` | TEXT | Last API update timestamp |
 
-**Clé unique :** `(price_date, card_id)`
-
-### `sealed_prices_daily` - Prix des scellés
-
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `price_date` | DATE | Date du prix |
-| `product_id` | TEXT (FK) | Référence produit |
-| `tcg_price` | NUMERIC | Prix TCGplayer (USD) |
-| `composite_price` | NUMERIC | = tcg_price (USD seul) |
+**Primary Key:** `(price_date, card_id)`
 
 ---
 
-## Tables d'index
+## Index Tables
 
-### `constituents_monthly` - Composition des indices
+### `constituents_monthly` - Index Composition
 
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `index_code` | TEXT | Code index (RARE_100, etc.) |
-| `month` | DATE | Premier jour du mois |
-| `item_type` | TEXT | 'card' ou 'sealed' |
-| `item_id` | TEXT | card_id ou product_id |
-| `composite_price` | NUMERIC | Prix au moment du calcul |
-| `liquidity_score` | NUMERIC | Score liquidité |
+| Column | Type | Description |
+|--------|------|-------------|
+| `index_code` | TEXT | Index code (RARE_100, etc.) |
+| `month` | DATE | First day of month |
+| `item_type` | TEXT | 'card' |
+| `item_id` | TEXT | card_id |
+| `composite_price` | NUMERIC | Price at calculation time |
+| `liquidity_score` | NUMERIC | Liquidity score |
 | `ranking_score` | NUMERIC | price × liquidity |
-| `rank` | INTEGER | Position dans l'index |
-| `weight` | NUMERIC | Poids (somme = 1) |
-| `is_new` | BOOLEAN | Nouveau ce mois |
+| `rank` | INTEGER | Position in index |
+| `weight` | NUMERIC | Weight (sum = 1) |
+| `is_new` | BOOLEAN | New this month |
 
-### `index_values_weekly` - Valeurs des indices
+### `index_values_daily` - Daily Index Values
 
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `index_code` | TEXT | Code index |
-| `week_date` | DATE | Date (dimanche) |
-| `index_value` | NUMERIC | Valeur (base 100) |
-| `n_constituents` | INTEGER | Nombre de constituants |
-| `total_market_cap` | NUMERIC | Cap totale |
-| `change_1w` | NUMERIC | Variation 1 semaine (%) |
-| `change_1m` | NUMERIC | Variation 1 mois (%) |
+| Column | Type | Description |
+|--------|------|-------------|
+| `index_code` | TEXT | Index code |
+| `value_date` | DATE | Calculation date |
+| `index_value` | NUMERIC | Value (base 100) |
+| `n_constituents` | INTEGER | Number of constituents |
+| `total_market_cap` | NUMERIC | Total market cap |
+| `change_1d` | NUMERIC | 1-day change (%) |
+| `change_1w` | NUMERIC | 1-week change (%) |
+| `change_1m` | NUMERIC | 1-month change (%) |
+
+### `index_values_weekly` - Weekly Index Values (Legacy)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `index_code` | TEXT | Index code |
+| `week_date` | DATE | Date (Sunday) |
+| `index_value` | NUMERIC | Value (base 100) |
+| `n_constituents` | INTEGER | Number of constituents |
+| `total_market_cap` | NUMERIC | Total market cap |
 
 ---
 
-## Table de monitoring
+## Monitoring Table
 
-### `run_logs` - Journal d'exécution
+### `run_logs` - Execution Log
 
-| Colonne | Type | Description |
-|---------|------|-------------|
-| `run_type` | TEXT | Type de job |
-| `started_at` | TIMESTAMP | Début |
-| `finished_at` | TIMESTAMP | Fin |
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | SERIAL (PK) | Auto-increment ID |
+| `run_type` | TEXT | Job type |
+| `started_at` | TIMESTAMP | Start time |
+| `finished_at` | TIMESTAMP | End time |
 | `status` | TEXT | running/success/failed |
-| `records_processed` | INTEGER | Lignes traitées |
-| `error_message` | TEXT | Message d'erreur |
-| `details` | JSONB | Détails additionnels |
+| `records_processed` | INTEGER | Rows processed |
+| `error_message` | TEXT | Error message |
+| `details` | JSONB | Additional details |
 
 ---
 
-## Vues utilitaires
+## Utility Views
 
 ### `v_latest_card_prices`
-Derniers prix par carte (évite les jointures complexes).
+Latest prices per card (avoids complex joins).
 
 ### `v_current_constituents`
-Constituants du mois en cours avec détails.
+Current month constituents with details.
 
 ---
 
-## Index de performance
+## Performance Indexes
 
 ```sql
--- Recherche par set
+-- Search by set
 CREATE INDEX idx_cards_set ON cards(set_id);
 
--- Recherche par rareté
+-- Search by rarity
 CREATE INDEX idx_cards_rarity ON cards(rarity);
 
--- Recherche de prix par date
+-- Search by eligibility
+CREATE INDEX idx_cards_eligible ON cards(is_eligible) WHERE is_eligible = true;
+
+-- Price search by date
 CREATE INDEX idx_card_prices_date ON card_prices_daily(price_date);
 
--- Recherche de prix par carte
+-- Price search by card
 CREATE INDEX idx_card_prices_card ON card_prices_daily(card_id);
+
+-- Volume index (for liquidity queries)
+CREATE INDEX idx_card_prices_volume ON card_prices_daily(daily_volume) 
+    WHERE daily_volume IS NOT NULL;
 ```
 
 ---
 
-## Estimation de volume
+## Volume Estimates
 
-| Table | Lignes estimées | Croissance |
-|-------|-----------------|------------|
-| sets | ~200 | +10/an |
-| cards | ~25,000 | +2,000/an |
-| fx_rates_daily | ~365/an | +365/an |
-| card_prices_daily | ~25,000/jour | +9M/an |
-| constituents_monthly | ~1,100/mois | +13,200/an |
-| index_values_weekly | ~5/semaine | +260/an |
+| Table | Estimated Rows | Growth |
+|-------|----------------|--------|
+| sets | ~220 | +10/year |
+| cards | ~26,000 | +3,000/year |
+| fx_rates_daily | ~365/year | +365/year |
+| card_prices_daily | ~10,000/day | ~3.6M/year |
+| constituents_monthly | ~1,100/month | ~13,200/year |
+| index_values_daily | ~3/day | ~1,100/year |
 
-**Volume total année 1 :** ~50 Mo (bien sous les 500 Mo du free tier Supabase)
+**Year 1 Total Volume:** ~100 MB (well under Supabase free tier 500 MB limit)
+
+---
+
+## SQL Files
+
+| File | Description |
+|------|-------------|
+| `001_schema.sql` | Main schema creation |
+| `005_add_daily_volume.sql` | Add volume columns to card_prices_daily |

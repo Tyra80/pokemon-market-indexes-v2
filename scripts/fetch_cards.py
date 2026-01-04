@@ -1,11 +1,13 @@
 """
 Pokemon Market Indexes v2 - Fetch Cards
 =======================================
-Fetches the card reference data from PokemonPriceTracker.
+Fetches the card reference data from TCGdex API (free, unlimited).
 
-Based on the official API documentation:
-- /sets : retrieves the list of sets (limit=500)
-- /cards?set={name}&fetchAllInSet=true : retrieves all cards from a set
+TCGdex API:
+- Base URL: https://api.tcgdex.net/v2/en
+- Endpoints: /sets, /cards/{set_id}
+- No authentication required
+- Unlimited requests
 
 Usage:
     python scripts/fetch_cards.py
@@ -17,222 +19,98 @@ import time
 import requests
 from datetime import datetime
 
-# Imports locaux
+# Local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.utils import (
     get_db_client, batch_upsert,
     log_run_start, log_run_end, send_discord_notification, get_today,
     print_header, print_step, print_success, print_error
 )
-from config.settings import PPT_API_KEY, PPT_BASE_URL, PPT_RATE_LIMIT
+from config.settings import RARE_RARITIES
 
-# Authentication headers (as per API documentation)
-HEADERS = {
-    "Authorization": f"Bearer {PPT_API_KEY}",
-}
+# TCGdex API Base URL
+TCGDEX_URL = "https://api.tcgdex.net/v2/en"
 
 
-# Maximum backoff time in seconds to prevent excessive waits
-MAX_BACKOFF_SECONDS = 60
-
-
-def api_request(endpoint: str, params: dict = None, max_retries: int = 3) -> dict:
+def fetch_sets() -> list:
     """
-    Makes a request to the PokemonPriceTracker API with automatic retry.
-    Uses exponential backoff with a cap to prevent excessive wait times.
-    """
-    url = f"{PPT_BASE_URL}{endpoint}"
-
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(url, headers=HEADERS, params=params, timeout=60)
-
-            # If rate limited, wait and retry with capped exponential backoff
-            if response.status_code == 429:
-                # Exponential backoff: 5s, 10s, 20s, 40s... capped at MAX_BACKOFF_SECONDS
-                wait_time = min(5 * (2 ** attempt), MAX_BACKOFF_SECONDS)
-                print(f"   ⏳ Rate limit reached, waiting {wait_time}s... (attempt {attempt + 1}/{max_retries})")
-                time.sleep(wait_time)
-                continue
-
-            response.raise_for_status()
-            return response.json()
-
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 429 and attempt < max_retries - 1:
-                continue
-            print(f"   ❌ HTTP Error {response.status_code}: {str(e)[:100]}")
-            if attempt < max_retries - 1:
-                wait_time = min(5 * (2 ** attempt), MAX_BACKOFF_SECONDS)
-                print(f"   ⏳ Retrying in {wait_time}s...")
-                time.sleep(wait_time)
-                continue
-            raise
-
-        except requests.exceptions.RequestException as e:
-            print(f"   ⚠️ Request error: {str(e)[:100]}")
-            if attempt < max_retries - 1:
-                wait_time = min(5 * (2 ** attempt), MAX_BACKOFF_SECONDS)
-                print(f"   ⏳ Retrying in {wait_time}s...")
-                time.sleep(wait_time)
-                continue
-            return None
-
-    return None
-
-
-def fetch_all_sets() -> list:
-    """
-    Fetches all sets from /sets.
-    Uses limit=500 (max allowed by the API).
-    """
-    print("   Fetching sets...")
+    Fetches all Pokemon TCG sets from TCGdex.
     
-    all_sets = []
-    offset = 0
-    limit = 500  # Max allowed by API
-    
-    while True:
-        try:
-            data = api_request("/sets", {
-                "limit": limit,
-                "offset": offset,
-                "sortBy": "releaseDate",
-                "sortOrder": "desc"
-            })
-            
-            # If the request failed
-            if data is None:
-                print(f"   ⚠️ Request failed at offset {offset}, continuing...")
-                break
-            
-            sets = data.get("data", [])
-            metadata = data.get("metadata", {})
-            
-            if not sets:
-                break
-            
-            # Filter out None values
-            valid_sets = [s for s in sets if s and isinstance(s, dict) and s.get("name")]
-            all_sets.extend(valid_sets)
-
-            print(f"   ... {len(all_sets)} sets loaded")
-
-            # Check if there's more data
-            if not metadata.get("hasMore", False):
-                break
-            
-            if len(sets) < limit:
-                break
-            
-            offset += limit
-            time.sleep(PPT_RATE_LIMIT["delay_between_requests"])
-            
-        except Exception as e:
-            print(f"   ⚠️ Error: {e}")
-            break
-
-    return all_sets
-
-
-def fetch_cards_for_set(set_name: str) -> list:
+    Returns:
+        list: List of sets with {id, name, releaseDate, ...}
     """
-    Fetches all cards from a set via /cards?set={name}&fetchAllInSet=true.
+    url = f"{TCGDEX_URL}/sets"
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_cards_for_set(set_id: str) -> list:
     """
-    try:
-        data = api_request("/cards", {
-            "set": set_name,
-            "fetchAllInSet": "true",
-        })
-        
-        # If the request failed (returns None after retries)
-        if data is None:
-            return []
-
-        cards = data.get("data", [])
-
-        # If data is a dict (single card), put it in a list
-        if isinstance(cards, dict):
-            cards = [cards]
-
-        # Filter out None values
-        valid_cards = [c for c in cards if c and isinstance(c, dict)]
-
-        return valid_cards
-
-    except Exception as e:
-        print(f"   ⚠️ Error: {e}")
-        return []
-
-
-def transform_set_to_db(set_data: dict) -> dict:
-    """Transforms an API set to DB format."""
-    if not set_data:
-        return None
-
-    # Use the API ID or create a slug from the name
-    set_id = set_data.get("id") or set_data.get("tcgPlayerId")
-    if not set_id:
-        set_id = set_data.get("name", "unknown").lower().replace(" ", "-").replace(":", "")[:50]
-
-    release_date = set_data.get("releaseDate")
-    if release_date:
-        release_date = release_date.replace("/", "-")[:10]  # Keep only YYYY-MM-DD
+    Fetches all cards from a set.
     
+    Args:
+        set_id: Set ID (e.g., "swsh1")
+    
+    Returns:
+        list: List of cards
+    """
+    url = f"{TCGDEX_URL}/sets/{set_id}"
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+    return data.get("cards", [])
+
+
+def transform_set(set_data: dict) -> dict:
+    """Transform TCGdex set data to our format."""
     return {
-        "set_id": str(set_id),
+        "set_id": set_data.get("id"),
         "name": set_data.get("name"),
-        "series": set_data.get("series"),
-        "release_date": release_date if release_date else None,
-        "total_cards": set_data.get("cardCount"),
+        "series": set_data.get("serie", {}).get("name") if isinstance(set_data.get("serie"), dict) else set_data.get("serie"),
+        "release_date": set_data.get("releaseDate"),
+        "total_cards": set_data.get("cardCount", {}).get("total") if isinstance(set_data.get("cardCount"), dict) else None,
+        "logo_url": set_data.get("logo"),
+        "symbol_url": set_data.get("symbol"),
     }
 
 
-def transform_card_to_db(card_data: dict) -> dict:
-    """Transforms an API card to DB format."""
-    if not card_data:
-        return None
-
-    # Unique ID: priority to internal ID, then tcgPlayerId
-    ppt_id = card_data.get("id")
-    tcgplayer_id = card_data.get("tcgPlayerId")
-
-    if ppt_id:
-        card_id = str(ppt_id)
-    elif tcgplayer_id:
-        card_id = f"tcg-{tcgplayer_id}"
-    else:
-        card_id = f"{card_data.get('setName', 'unknown')}-{card_data.get('cardNumber', 'unknown')}"
-
-    # set_id: use setId from API or create a slug
-    set_id = card_data.get("setId")
-    if not set_id:
-        set_name = card_data.get("setName", "unknown")
-        set_id = set_name.lower().replace(" ", "-").replace(":", "")[:50]
+def transform_card(card_data: dict, set_id: str, set_name: str = None, release_date: str = None) -> dict:
+    """Transform TCGdex card data to our format."""
+    # Extract rarity
+    rarity = card_data.get("rarity")
+    if isinstance(rarity, dict):
+        rarity = rarity.get("name", "Unknown")
+    
+    # Check eligibility (rarity >= Rare)
+    is_eligible = rarity in RARE_RARITIES if rarity else False
+    
+    # Build card ID (TCGdex format: set_id-local_id)
+    local_id = card_data.get("localId") or card_data.get("id", "").split("-")[-1]
+    card_id = f"{set_id}-{local_id}"
     
     return {
         "card_id": card_id,
-        "ppt_id": ppt_id,
-        "tcgplayer_id": str(tcgplayer_id) if tcgplayer_id else None,
         "name": card_data.get("name"),
-        "set_id": str(set_id),
-        "card_number": card_data.get("cardNumber"),
-        "rarity": card_data.get("rarity"),
-        "variant": "normal",
-        "card_type": card_data.get("cardType"),
+        "set_id": set_id,
+        "set_name": set_name,
+        "number": local_id,
+        "rarity": rarity,
+        "release_date": release_date,
+        "category": card_data.get("category"),
         "hp": card_data.get("hp"),
-        "artist": card_data.get("artist"),
-        "is_eligible": True,
+        "types": card_data.get("types"),
+        "image_url": card_data.get("image"),
+        "is_eligible": is_eligible,
     }
 
 
 def main():
-    print_header("🃏 Pokemon Market Indexes - Fetch Cards (v6)")
+    print_header("🃏 Pokemon Market Indexes - Fetch Cards")
     print(f"📅 Date: {get_today()}")
+    print(f"🌐 Source: TCGdex API (free)")
     print()
-    print("⚠️  This script may take 15-30 minutes.")
-    print("   You can interrupt it with Ctrl+C.")
-
+    
     # Connection
     print_step(1, "Connecting to Supabase")
     try:
@@ -242,113 +120,126 @@ def main():
         print_error(f"Connection failed: {e}")
         return
     
-    # Log the run
+    # Log run
     run_id = log_run_start(client, "fetch_cards")
-
+    
     total_sets = 0
     total_cards = 0
-
+    eligible_cards = 0
+    
     try:
         # Fetch sets
-        print_step(2, "Fetching sets")
-        sets = fetch_all_sets()
+        print_step(2, "Fetching sets from TCGdex")
+        sets = fetch_sets()
         print_success(f"{len(sets)} sets found")
-
-        if len(sets) == 0:
-            print_error("No sets found! Check the API key.")
-            return
-
-        # Save sets
+        
+        # Transform and save sets
         print_step(3, "Saving sets")
-        sets_db = [transform_set_to_db(s) for s in sets]
-        sets_db = [s for s in sets_db if s is not None]
-
-        result = batch_upsert(client, "sets", sets_db, on_conflict="set_id")
+        sets_to_save = []
+        for s in sets:
+            transformed = transform_set(s)
+            if transformed.get("set_id"):
+                sets_to_save.append(transformed)
+        
+        result = batch_upsert(client, "sets", sets_to_save, on_conflict="set_id")
         print_success(f"{result['saved']} sets saved")
         total_sets = result['saved']
-
-        # Fetch cards by set
-        print_step(4, "Fetching cards")
         
-        all_cards_db = []
-        sets_with_cards = 0
-        sets_without_cards = 0
+        # Fetch cards for each set
+        print_step(4, "Fetching cards by set")
+        
+        all_cards = []
         
         for i, set_data in enumerate(sets, 1):
+            set_id = set_data.get("id")
             set_name = set_data.get("name")
+            release_date = set_data.get("releaseDate")
             
-            if not set_name:
+            if not set_id:
                 continue
             
-            print(f"\n   [{i}/{len(sets)}] 📦 {set_name}")
+            print(f"\n   [{i}/{len(sets)}] 📦 {set_name} ({set_id})")
             
-            cards = fetch_cards_for_set(set_name)
-            
-            if cards:
-                cards_db = [transform_card_to_db(c) for c in cards]
-                cards_db = [c for c in cards_db if c is not None]
-                all_cards_db.extend(cards_db)
+            try:
+                cards = fetch_cards_for_set(set_id)
+                
+                for card in cards:
+                    transformed = transform_card(card, set_id, set_name, release_date)
+                    if transformed.get("card_id"):
+                        all_cards.append(transformed)
+                        if transformed.get("is_eligible"):
+                            eligible_cards += 1
+                
                 print(f"   ✅ {len(cards)} cards")
-                sets_with_cards += 1
-            else:
-                print(f"   ⚠️ No cards")
-                sets_without_cards += 1
-
-            # Save in batches of 2000 cards
-            if len(all_cards_db) >= 2000:
-                result = batch_upsert(client, "cards", all_cards_db, on_conflict="card_id")
+                
+            except Exception as e:
+                print(f"   ⚠️ Error: {e}")
+            
+            # Save in batches of 2000
+            if len(all_cards) >= 2000:
+                result = batch_upsert(client, "cards", all_cards, on_conflict="card_id")
                 print(f"\n   💾 Batch saved: {result['saved']} cards")
                 total_cards += result['saved']
-                all_cards_db = []
-
-            # Pause to respect rate limit (200 calls/min = 0.3s minimum)
-            time.sleep(0.35)
-
-        # Save the last batch
-        if all_cards_db:
-            result = batch_upsert(client, "cards", all_cards_db, on_conflict="card_id")
+                all_cards = []
+            
+            # Small pause to be nice to the API
+            time.sleep(0.1)
+        
+        # Save remaining cards
+        if all_cards:
+            result = batch_upsert(client, "cards", all_cards, on_conflict="card_id")
             print(f"\n   💾 Last batch: {result['saved']} cards")
             total_cards += result['saved']
-
+        
         # Verification
         print_step(5, "Verification")
-
+        
         response = client.from_("sets").select("*", count="exact").execute()
         print(f"   Sets in database: {response.count}")
-
+        
         response = client.from_("cards").select("*", count="exact").execute()
         print(f"   Cards in database: {response.count}")
-
+        
+        response = client.from_("cards").select("*", count="exact").eq("is_eligible", True).execute()
+        print(f"   Eligible cards (>= Rare): {response.count}")
+        
+        # Rarity distribution
+        print("\n   📊 Rarity distribution (Top 10):")
+        response = client.from_("cards").select("rarity").execute()
+        rarity_counts = {}
+        for row in response.data:
+            rarity = row.get("rarity") or "(Empty)"
+            rarity_counts[rarity] = rarity_counts.get(rarity, 0) + 1
+        
+        for rarity, count in sorted(rarity_counts.items(), key=lambda x: -x[1])[:10]:
+            eligible_marker = "✓" if rarity in RARE_RARITIES else "✗"
+            print(f"      {eligible_marker} {rarity:<30} : {count:>5}")
+        
         # Log success
-        log_run_end(client, run_id, "success", 
+        log_run_end(client, run_id, "success",
                     records_processed=total_cards,
-                    details={
-                        "sets": total_sets, 
-                        "cards": total_cards,
-                        "sets_with_cards": sets_with_cards,
-                        "sets_without_cards": sets_without_cards
-                    })
+                    details={"sets": total_sets, "cards": total_cards, "eligible": eligible_cards})
         
         # Discord notification
         send_discord_notification(
             "✅ Fetch Cards - Success",
-            f"{total_sets} sets, {total_cards} cards loaded."
+            f"{total_cards} cards fetched from {total_sets} sets.\n"
+            f"📊 {eligible_cards} eligible cards (>= Rare)"
         )
-
+        
+        # Summary
         print()
         print_header("📊 SUMMARY")
-        print(f"   Sets processed    : {total_sets}")
-        print(f"   Sets with cards   : {sets_with_cards}")
-        print(f"   Sets without cards: {sets_without_cards}")
-        print(f"   Total cards       : {total_cards}")
+        print(f"   Sets processed     : {total_sets}")
+        print(f"   Cards fetched      : {total_cards}")
+        print(f"   Eligible cards     : {eligible_cards}")
         print()
         print_success("Script completed successfully!")
-
+        
     except KeyboardInterrupt:
         print("\n\n⚠️ Interrupt detected (Ctrl+C)")
-        print("   Already saved data is preserved.")
         log_run_end(client, run_id, "interrupted", records_processed=total_cards)
-
+        
     except Exception as e:
         print_error(f"Error: {e}")
         log_run_end(client, run_id, "failed", error_message=str(e))

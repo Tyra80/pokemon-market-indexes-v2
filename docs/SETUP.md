@@ -1,140 +1,124 @@
-# 🚀 Guide de Setup Complet - Pokemon Market Indexes v2
+# 🚀 Complete Setup Guide - Pokemon Market Indexes v2
 
-Ce guide te permet de configurer tout le projet **from scratch**.
-
----
-
-## 📋 Prérequis
-
-Avant de commencer, assure-toi d'avoir :
-
-- ✅ **Python 3.11+** installé ([Télécharger](https://www.python.org/downloads/))
-- ✅ **VS Code** installé ([Télécharger](https://code.visualstudio.com/))
-- ✅ **Git** installé ([Télécharger](https://git-scm.com/downloads))
-- ✅ Un compte **GitHub** ([Créer](https://github.com/signup))
-- ✅ Un compte **Supabase** ([Créer](https://supabase.com/))
-- ✅ Une clé API **PokemonPriceTracker** Business
+This guide walks you through setting up the entire project **from scratch**.
 
 ---
 
-## 🧹 Étape 0 : Nettoyage (si tu avais une version précédente)
+## 📋 Prerequisites
 
-### Supprimer l'ancien dossier local
+Before starting, make sure you have:
+
+- ✅ **Python 3.11+** installed ([Download](https://www.python.org/downloads/))
+- ✅ **VS Code** installed ([Download](https://code.visualstudio.com/))
+- ✅ **Git** installed ([Download](https://git-scm.com/downloads))
+- ✅ A **GitHub** account ([Sign up](https://github.com/signup))
+- ✅ A **Supabase** account ([Sign up](https://supabase.com/))
+- ✅ A **PokemonPriceTracker** API key (Business plan - $99/month)
+
+---
+
+## 📁 Step 1: Create Project Folder
+
+### 1.1 Create the folder
 ```powershell
-# Ouvre PowerShell et exécute :
-Remove-Item -Recurse -Force C:\Users\demai\Desktop\pokemon-index-project
-```
-
-### Supprimer l'ancien projet Supabase
-1. Va sur [Supabase Dashboard](https://supabase.com/dashboard)
-2. Clique sur ton projet
-3. **Settings** (engrenage) → **General**
-4. Scroll en bas → **Delete project**
-5. Tape le nom du projet pour confirmer
-
-### Supprimer l'ancien repo GitHub (optionnel)
-1. Va sur ton repo GitHub
-2. **Settings** → Scroll tout en bas → **Delete this repository**
-
----
-
-## 📁 Étape 1 : Créer le dossier du projet
-
-### 1.1 Crée le dossier
-```powershell
-# Ouvre PowerShell
-cd C:\Users\demai\Desktop
+# Open PowerShell
+cd C:\Users\YOUR_USERNAME\Desktop
 mkdir pokemon-market-indexes-v2
 cd pokemon-market-indexes-v2
 ```
 
-### 1.2 Ouvre dans VS Code
+### 1.2 Open in VS Code
 ```powershell
 code .
 ```
 
 ---
 
-## 🗃️ Étape 2 : Créer le projet Supabase
+## 🗃️ Step 2: Create Supabase Project
 
-### 2.1 Crée un nouveau projet
-1. Va sur [Supabase Dashboard](https://supabase.com/dashboard)
-2. Clique **New Project**
-3. Remplis :
-   - **Name** : `pokemon-market-indexes-v2`
-   - **Database Password** : génère un mot de passe fort (note-le !)
-   - **Region** : `West EU (Ireland)` ou le plus proche de toi
-4. Clique **Create new project**
-5. ⏳ Attends 2-3 minutes que le projet se crée
+### 2.1 Create a new project
+1. Go to [Supabase Dashboard](https://supabase.com/dashboard)
+2. Click **New Project**
+3. Fill in:
+   - **Name**: `pokemon-market-indexes-v2`
+   - **Database Password**: generate a strong password (save it!)
+   - **Region**: `West EU (Ireland)` or closest to you
+4. Click **Create new project**
+5. ⏳ Wait 2-3 minutes for project creation
 
-### 2.2 Récupère les credentials
-1. Une fois créé, va dans **Settings** (engrenage) → **API**
-2. Note ces valeurs (tu en auras besoin) :
-   - **Project URL** : `https://xxxxx.supabase.co`
-   - **anon public** key : `eyJhbGciOiJI...` (longue chaîne)
+### 2.2 Get your credentials
+1. Once created, go to **Settings** (gear icon) → **API**
+2. Note these values (you'll need them):
+   - **Project URL**: `https://xxxxx.supabase.co`
+   - **anon public** key: `eyJhbGciOiJI...` (long string)
 
-### 2.3 Crée les tables
-1. Dans Supabase, va dans **SQL Editor** (icône de code)
-2. Clique **New query**
-3. Copie-colle **TOUT** le contenu du fichier `sql/001_schema.sql`
-4. Clique **Run** (ou Ctrl+Enter)
-5. Tu devrais voir : `Schema v2 créé avec succès!`
+### 2.3 Create the tables
+1. In Supabase, go to **SQL Editor** (code icon)
+2. Click **New query**
+3. Copy-paste **ALL** content from `sql/001_schema.sql`
+4. Click **Run** (or Ctrl+Enter)
+5. You should see: `Schema v2 created successfully!`
 
-**Vérification :**
-- Va dans **Table Editor** (icône de table)
-- Tu dois voir 9 tables : `sets`, `cards`, `sealed_products`, etc.
+### 2.4 Add volume columns
+1. Create another new query
+2. Copy-paste content from `sql/005_add_daily_volume.sql`
+3. Click **Run**
+
+**Verification:**
+- Go to **Table Editor** (table icon)
+- You should see tables: `sets`, `cards`, `card_prices_daily`, etc.
 
 ---
 
-## 🐍 Étape 3 : Configurer Python
+## 🐍 Step 3: Configure Python
 
-### 3.1 Crée l'environnement virtuel
-Dans le terminal VS Code (Ctrl+`) :
+### 3.1 Create virtual environment
+In VS Code terminal (Ctrl+`):
 ```powershell
 python -m venv venv
 ```
 
-### 3.2 Active l'environnement
+### 3.2 Activate the environment
 ```powershell
 .\venv\Scripts\Activate
 ```
-Tu dois voir `(venv)` au début de la ligne.
+You should see `(venv)` at the beginning of the line.
 
-### 3.3 Installe les dépendances
+### 3.3 Install dependencies
 ```powershell
 pip install -r requirements.txt
 ```
 
 ---
 
-## ⚙️ Étape 4 : Configurer les variables d'environnement
+## ⚙️ Step 4: Configure Environment Variables
 
-### 4.1 Crée le fichier .env
-Dans VS Code, crée un fichier `.env` à la racine du projet :
+### 4.1 Create .env file
+In VS Code, create a `.env` file at the project root:
 
 ```env
 # Supabase
-SUPABASE_URL=https://ton-projet.supabase.co
+SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 # PokemonPriceTracker API
-PPT_API_KEY=pokeprice_business_ta_cle_api
+PPT_API_KEY=pokeprice_business_your_api_key
 
-# Discord (optionnel - pour les notifications)
+# Discord (optional - for notifications)
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxx/yyy
 ```
 
-**⚠️ IMPORTANT :** Remplace les valeurs par tes vraies credentials !
+**⚠️ IMPORTANT:** Replace values with your actual credentials!
 
-### 4.2 Vérifie que .env est ignoré par Git
-Le fichier `.gitignore` contient déjà `.env`, donc tes secrets ne seront jamais pushés sur GitHub.
+### 4.2 Verify .env is git-ignored
+The `.gitignore` file already contains `.env`, so your secrets will never be pushed to GitHub.
 
 ---
 
-## 🧪 Étape 5 : Tester la connexion
+## 🧪 Step 5: Test Connection
 
-### 5.1 Teste la connexion Supabase
-Crée un fichier `test_connection.py` temporaire :
+### 5.1 Test Supabase connection
+Create a temporary `test_connection.py` file:
 
 ```python
 from scripts.utils import get_db_client
@@ -142,183 +126,208 @@ from scripts.utils import get_db_client
 try:
     client = get_db_client()
     result = client.from_("sets").select("*").limit(1).execute()
-    print("✅ Connexion Supabase OK !")
+    print("✅ Supabase connection OK!")
 except Exception as e:
-    print(f"❌ Erreur : {e}")
+    print(f"❌ Error: {e}")
 ```
 
-Exécute :
+Run:
 ```powershell
 python test_connection.py
 ```
 
-Tu dois voir : `✅ Connexion Supabase OK !`
+You should see: `✅ Supabase connection OK!`
 
-Supprime le fichier de test après.
+Delete the test file afterwards.
 
 ---
 
-## 📊 Étape 6 : Premier chargement des données
+## 📊 Step 6: Initial Data Load
 
-### 6.1 Charger les taux de change (1 minute)
+### 6.1 Load exchange rates (~1 minute)
 ```powershell
 python scripts/fetch_fx_rates.py
 ```
 
-**Résultat attendu :**
+**Expected result:**
 ```
-✅ 30 taux sauvegardés
-📊 Derniers taux :
+✅ 30 rates saved
+📊 Latest rates:
    2026-01-03 : 1.0312
    ...
 ```
 
-### 6.2 Charger les cartes (30-60 minutes)
+### 6.2 Load cards (~30-60 minutes)
 ```powershell
 python scripts/fetch_cards.py
 ```
 
-**⚠️ Ce script prend du temps !** Tu peux le laisser tourner et faire autre chose.
+**⚠️ This script takes time!** You can let it run and do something else.
 
-**Résultat attendu :**
+**Expected result:**
 ```
-📦 Sets traités  : ~200
-🃏 Cartes totales: ~23,000
+📦 Sets processed  : ~220
+🃏 Total cards     : ~26,000
 ```
 
-### 6.3 Charger les prix (30-45 minutes)
+### 6.3 Load prices with volume (~45 minutes)
 ```powershell
 python scripts/fetch_prices.py
 ```
 
-**Résultat attendu :**
+**Expected result:**
 ```
-💰 ~15,000 prix récupérés
+📊 SUMMARY
+   Sets processed       : 213
+   Prices fetched       : ~9,500
+   Cards with volume    : ~8,000
 ```
 
-### 6.4 Calculer les indices (2 minutes)
+### 6.4 Calculate indexes (~2 minutes)
 ```powershell
-python scripts/calculate_index.py
+python scripts/calculate_index.py --rebalance
 ```
 
-**Résultat attendu :**
+**Expected result:**
 ```
-📈 RARE_100 : 100.00 (100 constituants)
-📈 RARE_500 : 100.00 (500 constituants)
-📈 RARE_ALL : 100.00 (xxxx constituants)
+📈 RARE_100 : 100.00 (100 constituents)
+📈 RARE_500 : 100.00 (500 constituents)
+📈 RARE_ALL : 100.00 (xxxx constituents)
+📊 Liquidity: XX volume_decay | XX listings_fallback
 ```
 
 ---
 
-## 🐙 Étape 7 : Configurer GitHub
+## 📜 Step 7: Backfill Historical Data (Optional)
 
-### 7.1 Initialise Git
+If you want historical index values:
+
+### 7.1 Backfill historical prices
+```powershell
+python scripts/fetch_historical_backfill.py --days 30
+```
+
+### 7.2 Backfill index values
+```powershell
+# Dry run first (simulation)
+python scripts/backfill_index.py --dry-run
+
+# If OK, run for real
+python scripts/backfill_index.py
+```
+
+---
+
+## 🐙 Step 8: Configure GitHub
+
+### 8.1 Initialize Git
 ```powershell
 git init
 git add .
 git commit -m "Initial commit - Pokemon Market Indexes v2"
 ```
 
-### 7.2 Crée le repo GitHub
-1. Va sur [GitHub](https://github.com/new)
-2. **Repository name** : `pokemon-market-indexes`
-3. **Private** (recommandé)
-4. Ne coche PAS "Add README"
-5. Clique **Create repository**
+### 8.2 Create GitHub repo
+1. Go to [GitHub](https://github.com/new)
+2. **Repository name**: `pokemon-market-indexes`
+3. **Private** (recommended)
+4. Do NOT check "Add README"
+5. Click **Create repository**
 
-### 7.3 Connecte ton repo local
-GitHub te montre les commandes. Exécute :
+### 8.3 Connect local repo
+GitHub shows the commands. Run:
 ```powershell
-git remote add origin https://github.com/TON_USERNAME/pokemon-market-indexes.git
+git remote add origin https://github.com/YOUR_USERNAME/pokemon-market-indexes.git
 git branch -M main
 git push -u origin main
 ```
 
-### 7.4 Configure les secrets GitHub
-1. Sur GitHub, va dans ton repo → **Settings** → **Secrets and variables** → **Actions**
-2. Clique **New repository secret** et ajoute :
+### 8.4 Configure GitHub secrets
+1. On GitHub, go to your repo → **Settings** → **Secrets and variables** → **Actions**
+2. Click **New repository secret** and add:
 
 | Name | Value |
 |------|-------|
-| `SUPABASE_URL` | `https://ton-projet.supabase.co` |
+| `SUPABASE_URL` | `https://your-project.supabase.co` |
 | `SUPABASE_KEY` | `eyJhbGciOiJI...` |
 | `PPT_API_KEY` | `pokeprice_business_...` |
 | `DISCORD_WEBHOOK_URL` | `https://discord.com/api/webhooks/...` |
 
 ---
 
-## 🤖 Étape 8 : Activer l'automatisation
+## 🤖 Step 9: Enable Automation
 
-### 8.1 Vérifie que les workflows sont présents
-Dans ton repo GitHub, va dans **Actions**. Tu dois voir :
+### 9.1 Verify workflows are present
+In your GitHub repo, go to **Actions**. You should see:
 - Daily FX Rates
 - Daily Prices
-- Weekly Index Calculation
+- Daily Index Calculation
 - Weekly Cards Update
 - Keepalive
 
-### 8.2 Lance un workflow manuellement (test)
-1. Clique sur **Daily FX Rates**
-2. Clique **Run workflow** → **Run workflow**
-3. Attends 1-2 minutes
-4. ✅ Le workflow doit passer au vert
+### 9.2 Test a workflow manually
+1. Click on **Daily FX Rates**
+2. Click **Run workflow** → **Run workflow**
+3. Wait 1-2 minutes
+4. ✅ Workflow should turn green
 
-### 8.3 Planning automatique
-Les workflows se lanceront automatiquement :
+### 9.3 Automatic schedule
+Workflows will run automatically:
 
-| Workflow | Fréquence | Heure (Paris) |
-|----------|-----------|---------------|
-| FX Rates | Quotidien | 17h00 |
-| Prices | Quotidien | 07h00 |
-| Index Calculation | Dimanche | 01h00 |
-| Cards Update | Dimanche | 04h00 |
-| Keepalive | Tous les 5 jours | 13h00 |
-
----
-
-## 🔔 Étape 9 : Configurer Discord (optionnel)
-
-Si tu veux recevoir des notifications :
-
-### 9.1 Crée un webhook Discord
-1. Dans Discord, va dans les paramètres de ton serveur
-2. **Intégrations** → **Webhooks** → **Nouveau webhook**
-3. Nomme-le "Pokemon Indexes"
-4. Copie l'URL du webhook
-
-### 9.2 Ajoute-le aux secrets GitHub
-- Retourne dans GitHub → Settings → Secrets
-- Ajoute `DISCORD_WEBHOOK_URL` avec l'URL copiée
+| Workflow | Frequency | Time (UTC) |
+|----------|-----------|------------|
+| FX Rates | Daily | 16:00 |
+| Prices | Daily | 06:00 |
+| Index Calculation | Daily | 07:00 |
+| Cards Update | Weekly (Sunday) | 03:00 |
+| Keepalive | Every 5 days | 12:00 |
 
 ---
 
-## ✅ Étape 10 : Vérification finale
+## 🔔 Step 10: Configure Discord (Optional)
+
+If you want to receive notifications:
+
+### 10.1 Create a Discord webhook
+1. In Discord, go to your server settings
+2. **Integrations** → **Webhooks** → **New Webhook**
+3. Name it "Pokemon Indexes"
+4. Copy the webhook URL
+
+### 10.2 Add to GitHub secrets
+- Go back to GitHub → Settings → Secrets
+- Add `DISCORD_WEBHOOK_URL` with the copied URL
+
+---
+
+## ✅ Step 11: Final Verification
 
 ### Checklist
 
-- [ ] Supabase : 9 tables créées
-- [ ] Supabase : fx_rates_daily contient des données
-- [ ] Supabase : cards contient ~23,000 lignes
-- [ ] Supabase : card_prices_daily contient des données
-- [ ] Supabase : index_values_weekly contient RARE_100, RARE_500, RARE_ALL
-- [ ] GitHub : Repo créé et code pushé
-- [ ] GitHub : 4 secrets configurés
-- [ ] GitHub Actions : Workflow FX testé manuellement ✅
+- [ ] Supabase: All tables created
+- [ ] Supabase: fx_rates_daily contains data
+- [ ] Supabase: cards contains ~26,000 rows
+- [ ] Supabase: card_prices_daily contains data with volume
+- [ ] Supabase: index_values_daily contains RARE_100, RARE_500, RARE_ALL
+- [ ] GitHub: Repo created and code pushed
+- [ ] GitHub: 4 secrets configured
+- [ ] GitHub Actions: FX workflow tested manually ✅
 
 ---
 
-## 🎉 C'est terminé !
+## 🎉 Setup Complete!
 
-Ton système est maintenant opérationnel :
+Your system is now operational:
 
-1. **Chaque jour** à 7h : les prix sont mis à jour
-2. **Chaque jour** à 17h : le taux EUR/USD est mis à jour
-3. **Chaque dimanche** : les indices sont recalculés
+1. **Every day** at 6:00 UTC: Prices are updated (with volume)
+2. **Every day** at 7:00 UTC: Index values are calculated
+3. **Every day** at 16:00 UTC: FX rates are updated
+4. **Every Sunday**: Card database is refreshed
 
-Tu peux consulter les données dans :
-- **Supabase** → Table Editor → `index_values_weekly`
-- **GitHub** → Actions (voir les logs d'exécution)
-- **Discord** (si configuré) → notifications automatiques
+You can view data in:
+- **Supabase** → Table Editor → `index_values_daily`
+- **GitHub** → Actions (see execution logs)
+- **Discord** (if configured) → automatic notifications
 
 ---
 
@@ -326,28 +335,45 @@ Tu peux consulter les données dans :
 
 ### "Module not found"
 ```powershell
-# Vérifie que l'environnement virtuel est activé
+# Make sure virtual environment is activated
 .\venv\Scripts\Activate
 pip install -r requirements.txt
 ```
 
 ### "Connection refused" / "Invalid API key"
-- Vérifie tes credentials dans `.env`
-- Vérifie les secrets GitHub
+- Check your credentials in `.env`
+- Check GitHub secrets
 
 ### "Rate limit exceeded"
-- L'API PokemonPriceTracker a une limite de 200k req/jour
-- Attends minuit UTC pour le reset
+- PokemonPriceTracker API has a 200k req/day limit
+- Wait until midnight UTC for reset
 
-### Workflow GitHub échoue
-1. Va dans Actions → clique sur le workflow échoué
-2. Clique sur le job → regarde les logs
-3. L'erreur est généralement visible dans les dernières lignes
+### GitHub workflow fails
+1. Go to Actions → click on failed workflow
+2. Click on job → view logs
+3. Error is usually visible in last lines
+
+### "liquidity_score is None"
+- This is normal for cards without enough data
+- Method B (listings fallback) will be used
 
 ---
 
-## 📚 Pour aller plus loin
+## 📚 Further Reading
 
-- [Documentation méthodologie](METHODOLOGY.md)
-- [Schéma base de données](DATABASE.md)
-- [API PokemonPriceTracker](https://www.pokemonpricetracker.com/docs)
+- [Methodology Documentation](METHODOLOGY.md)
+- [Database Schema](DATABASE.md)
+- [PokemonPriceTracker API](https://www.pokemonpricetracker.com/docs)
+
+---
+
+## Scripts Reference
+
+| Script | Purpose | Frequency |
+|--------|---------|-----------|
+| `fetch_fx_rates.py` | Get EUR/USD exchange rates | Daily |
+| `fetch_cards.py` | Update card database | Weekly |
+| `fetch_prices.py` | Get daily prices with volume | Daily |
+| `calculate_index.py` | Calculate index values | Daily |
+| `backfill_index.py` | Backfill historical index values | One-time |
+| `fetch_historical_backfill.py` | Backfill historical prices | One-time |

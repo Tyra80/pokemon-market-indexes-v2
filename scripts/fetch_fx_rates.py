@@ -77,11 +77,15 @@ def fetch_historical_rates(start_date: str, end_date: str) -> list:
 
 
 def main():
+    # Set date once at the start of the run
+    today_str = get_today()
+    today_date = date.fromisoformat(today_str)
+
     print_header("💱 Pokemon Market Indexes - Fetch FX Rates")
-    print(f"📅 Date: {get_today()}")
+    print(f"📅 Date: {today_str}")
     print(f"🌐 Source: Frankfurter API (free)")
     print()
-    
+
     # Connection
     print_step(1, "Connecting to Supabase")
     try:
@@ -116,12 +120,11 @@ def main():
             
             # Calculate missing days
             last = date.fromisoformat(last_date)
-            today = date.today()
-            
-            if last < today - timedelta(days=1):
+
+            if last < today_date - timedelta(days=1):
                 # Fetch missing days
                 start = (last + timedelta(days=1)).strftime("%Y-%m-%d")
-                end = today.strftime("%Y-%m-%d")
+                end = today_str
                 
                 print(f"   Fetching missing rates: {start} to {end}")
                 historical = fetch_historical_rates(start, end)
@@ -136,8 +139,8 @@ def main():
         else:
             # First run - fetch last 30 days
             print("   Empty database, fetching last 30 days")
-            start = (date.today() - timedelta(days=30)).strftime("%Y-%m-%d")
-            end = date.today().strftime("%Y-%m-%d")
+            start = (today_date - timedelta(days=30)).strftime("%Y-%m-%d")
+            end = today_str
             
             historical = fetch_historical_rates(start, end)
             

@@ -240,7 +240,7 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
                      n_constituents: int, market_cap: float) -> bool:
     """Save initial index value."""
     try:
-        client.from_("index_values_weekly").upsert({
+        client.from_("index_values_daily").upsert({
             "index_code": index_code,
             "week_date": value_date,
             "index_value": round(index_value, 4),
@@ -380,7 +380,7 @@ def main():
         # Verification
         print_step(5, "Verification")
         
-        response = client.from_("index_values_weekly") \
+        response = client.from_("index_values_daily") \
             .select("*") \
             .eq("week_date", INCEPTION_DATE) \
             .execute()

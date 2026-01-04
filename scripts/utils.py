@@ -7,7 +7,7 @@ Utility functions shared by all scripts.
 import os
 import sys
 import requests
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from postgrest import SyncPostgrestClient
 
 # Add parent folder to path for imports
@@ -168,7 +168,7 @@ def batch_upsert(client, table: str, rows: list,
                     else:
                         client.from_(table).upsert(row).execute()
                     saved += 1
-                except:
+                except Exception:
                     failed += 1
     
     return {"saved": saved, "failed": failed}
@@ -191,7 +191,7 @@ def log_run_start(client, run_type: str) -> int:
             "status": "running"
         }).execute()
         return response.data[0]["id"]
-    except:
+    except Exception:
         return None
 
 
@@ -206,7 +206,7 @@ def log_run_end(client, run_id: int, status: str,
     
     try:
         update_data = {
-            "finished_at": datetime.utcnow().isoformat(),
+            "finished_at": datetime.now(timezone.utc).isoformat(),
             "status": status,
             "records_processed": records_processed,
             "records_failed": records_failed,
@@ -217,7 +217,7 @@ def log_run_end(client, run_id: int, status: str,
             update_data["details"] = details
         
         client.from_("run_logs").update(update_data).eq("id", run_id).execute()
-    except:
+    except Exception:
         pass
 
 
@@ -247,14 +247,14 @@ def send_discord_notification(title: str, description: str,
             "title": title,
             "description": description,
             "color": color,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "footer": {"text": "Pokemon Market Indexes v2"}
         }]
     }
     
     try:
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-    except:
+    except Exception:
         pass
 
 

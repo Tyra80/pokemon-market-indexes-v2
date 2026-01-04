@@ -299,7 +299,7 @@ def get_previous_index_data(client, index_code: str) -> dict:
     Returns: {value, date, constituents: [{card_id, weight, price}]}
     """
     # Last value
-    response = client.from_("index_values_weekly") \
+    response = client.from_("index_values_daily") \
         .select("index_value, week_date") \
         .eq("index_code", index_code) \
         .order("week_date", desc=True) \
@@ -503,41 +503,41 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
     # 1 week ago
     try:
         week_ago = (date.fromisoformat(value_date) - timedelta(days=7)).strftime("%Y-%m-%d")
-        response = client.from_("index_values_weekly") \
+        response = client.from_("index_values_daily") \
             .select("index_value") \
             .eq("index_code", index_code) \
             .lte("week_date", week_ago) \
             .order("week_date", desc=True) \
             .limit(1) \
             .execute()
-        
+
         if response.data:
             prev_val = response.data[0]["index_value"]
             if prev_val > 0:
                 change_1w = round((index_value - prev_val) / prev_val * 100, 4)
-    except:
+    except Exception:
         pass
-    
+
     # 1 month ago
     try:
         month_ago = (date.fromisoformat(value_date) - timedelta(days=30)).strftime("%Y-%m-%d")
-        response = client.from_("index_values_weekly") \
+        response = client.from_("index_values_daily") \
             .select("index_value") \
             .eq("index_code", index_code) \
             .lte("week_date", month_ago) \
             .order("week_date", desc=True) \
             .limit(1) \
             .execute()
-        
+
         if response.data:
             prev_val = response.data[0]["index_value"]
             if prev_val > 0:
                 change_1m = round((index_value - prev_val) / prev_val * 100, 4)
-    except:
+    except Exception:
         pass
     
     try:
-        client.from_("index_values_weekly").upsert({
+        client.from_("index_values_daily").upsert({
             "index_code": index_code,
             "week_date": value_date,
             "index_value": round(index_value, 4),
@@ -727,7 +727,7 @@ def main():
         # Final verification
         print_step(5, "Verification")
         
-        response = client.from_("index_values_weekly") \
+        response = client.from_("index_values_daily") \
             .select("*") \
             .order("week_date", desc=True) \
             .order("index_code") \

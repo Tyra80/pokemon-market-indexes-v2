@@ -104,7 +104,7 @@ def get_constituents_for_month(client, index_code: str, month: str) -> list:
 
 def get_previous_index_value(client, index_code: str, before_date: str) -> tuple:
     """Get the most recent index value before the given date."""
-    response = client.from_("index_values_weekly") \
+    response = client.from_("index_values_daily") \
         .select("index_value, week_date") \
         .eq("index_code", index_code) \
         .lt("week_date", before_date) \
@@ -187,7 +187,7 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
         if market_cap:
             data["total_market_cap"] = round(market_cap, 2)
         
-        client.from_("index_values_weekly").upsert(
+        client.from_("index_values_daily").upsert(
             data, on_conflict="index_code,week_date"
         ).execute()
         return True
@@ -374,7 +374,7 @@ def main():
             start_date = args.start
         else:
             # Find last calculated date
-            response = client.from_("index_values_weekly") \
+            response = client.from_("index_values_daily") \
                 .select("week_date") \
                 .order("week_date", desc=True) \
                 .limit(1) \
@@ -468,7 +468,7 @@ def main():
         # Final summary
         print_step(5, "Summary")
         
-        response = client.from_("index_values_weekly") \
+        response = client.from_("index_values_daily") \
             .select("*") \
             .order("week_date", desc=True) \
             .limit(9) \

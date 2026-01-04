@@ -134,16 +134,6 @@ Complete database schema documentation.
 | `change_1w` | NUMERIC | 1-week change (%) |
 | `change_1m` | NUMERIC | 1-month change (%) |
 
-### `index_values_weekly` - Weekly Index Values (Legacy)
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `index_code` | TEXT | Index code |
-| `week_date` | DATE | Date (Sunday) |
-| `index_value` | NUMERIC | Value (base 100) |
-| `n_constituents` | INTEGER | Number of constituents |
-| `total_market_cap` | NUMERIC | Total market cap |
-
 ---
 
 ## Monitoring Table

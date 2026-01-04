@@ -26,7 +26,7 @@ from scripts.utils import (
     log_run_start, log_run_end, send_discord_notification, get_today,
     print_header, print_step, print_success, print_error
 )
-from config.settings import PPT_API_KEY, CONDITION_WEIGHTS, LIQUIDITY_CAP, RARE_RARITIES
+from config.settings import PPT_API_KEY, CONDITION_WEIGHTS, LIQUIDITY_CAP, VOLUME_CAP, RARE_RARITIES
 
 # API Base URL (v2)
 BASE_URL = "https://www.pokemonpricetracker.com/api/v2"
@@ -36,8 +36,6 @@ HEADERS = {
     "Authorization": f"Bearer {PPT_API_KEY}",
 }
 
-# Today's date
-TODAY = get_today()
 
 
 def api_request(endpoint: str, params: dict = None, max_retries: int = 5) -> dict:
@@ -124,10 +122,10 @@ def calculate_liquidity_score(prices_data: dict) -> tuple:
     return round(liquidity_score, 4), round(weighted_listings, 2), conditions_with_listings
 
 
-def extract_price_data(card_data: dict) -> dict:
+def extract_price_data(card_data: dict, price_date: str) -> dict:
     """
     Extracts price data from a card, including sales volume.
-    
+
     Volume is only available if includeHistory=true in the request.
     Structure: priceHistory.conditions.{condition}.history[-1].volume
     """
@@ -221,7 +219,6 @@ def extract_price_data(card_data: dict) -> dict:
             (dmg_volume or 0) * CONDITION_WEIGHTS.get("Damaged", 0.2)
         )
         # Score = weighted volume / cap (e.g., 50 sales/day = max score)
-        VOLUME_CAP = 50
         liquidity_score = min(weighted_volume / VOLUME_CAP, 1.0)
     else:
         # Fallback to listings method if no volume
@@ -231,7 +228,7 @@ def extract_price_data(card_data: dict) -> dict:
     last_updated = prices.get("lastUpdated")
     
     return {
-        "price_date": TODAY,
+        "price_date": price_date,
         "card_id": card_id,
         "market_price": market_price,
         "low_price": prices.get("low"),
@@ -259,17 +256,18 @@ def extract_price_data(card_data: dict) -> dict:
     }
 
 
-def fetch_prices_for_set(set_name: str, filter_rarity: bool = True) -> tuple:
+def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = True) -> tuple:
     """
     Fetches all prices for a set with sales volume.
-    
+
     Uses includeHistory=true + days=1 to get today's volume.
     Cost: 2 credits per card (instead of 1).
-    
+
     Args:
         set_name: Set name
+        price_date: Date string (YYYY-MM-DD) to use for price records
         filter_rarity: If True, only keep cards with rarity >= Rare
-        
+
     Returns:
         tuple: (prices_list, stats_dict)
     """
@@ -280,15 +278,15 @@ def fetch_prices_for_set(set_name: str, filter_rarity: bool = True) -> tuple:
             "includeHistory": "true",  # NEW: enables history
             "days": 1,                  # NEW: just the last day (for volume)
         })
-        
+
         if data is None:
             return [], {"total": 0, "filtered": 0, "skipped": 0, "with_volume": 0}
-        
+
         cards = data.get("data", [])
-        
+
         if isinstance(cards, dict):
             cards = [cards]
-        
+
         # Stats
         stats = {
             "total": len(cards),
@@ -298,7 +296,7 @@ def fetch_prices_for_set(set_name: str, filter_rarity: bool = True) -> tuple:
             "with_volume": 0,
             "total_volume": 0,
         }
-        
+
         # Extract prices from each card
         prices = []
         for card in cards:
@@ -310,32 +308,35 @@ def fetch_prices_for_set(set_name: str, filter_rarity: bool = True) -> tuple:
                         stats["skipped"] += 1
                         stats["skipped_rarities"][rarity] = stats["skipped_rarities"].get(rarity, 0) + 1
                         continue
-                
-                price_data = extract_price_data(card)
+
+                price_data = extract_price_data(card, price_date)
                 if price_data:
                     prices.append(price_data)
                     stats["filtered"] += 1
-                    
+
                     # Volume stats
                     if price_data.get("daily_volume"):
                         stats["with_volume"] += 1
                         stats["total_volume"] += price_data["daily_volume"]
-        
+
         return prices, stats
-        
+
     except Exception as e:
         print(f"   ⚠️ Error: {e}")
         return [], {"total": 0, "filtered": 0, "skipped": 0, "with_volume": 0}
 
 
 def main():
+    # Set date once at the start of the run
+    today = get_today()
+
     print_header("💰 Pokemon Market Indexes - Fetch Prices (with Volume)")
-    print(f"📅 Date: {TODAY}")
+    print(f"📅 Date: {today}")
     print(f"🔍 Rarity filter: Enabled (>= Rare)")
     print(f"📊 Sales volume: Enabled (includeHistory=true)")
     print(f"💰 API cost: 2 credits/card")
     print()
-    
+
     # Connection
     print_step(1, "Connecting to Supabase")
     try:
@@ -381,7 +382,7 @@ def main():
             
             print(f"\n   [{i}/{len(sets)}] 📦 {set_name}")
             
-            prices, stats = fetch_prices_for_set(set_name, filter_rarity=True)
+            prices, stats = fetch_prices_for_set(set_name, today, filter_rarity=True)
             
             if prices:
                 all_prices.extend(prices)
@@ -422,14 +423,14 @@ def main():
         
         response = client.from_("card_prices_daily") \
             .select("*", count="exact") \
-            .eq("price_date", TODAY) \
+            .eq("price_date", today) \
             .execute()
         print(f"   Prices today: {response.count}")
-        
+
         # Top 5 by volume (NEW)
         response = client.from_("card_prices_daily") \
             .select("card_id, market_price, daily_volume, liquidity_score") \
-            .eq("price_date", TODAY) \
+            .eq("price_date", today) \
             .not_.is_("daily_volume", "null") \
             .order("daily_volume", desc=True) \
             .limit(5) \

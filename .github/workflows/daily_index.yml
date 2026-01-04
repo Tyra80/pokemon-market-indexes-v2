@@ -50,8 +50,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FORCE_REBALANCE: ${{ github.event.inputs.force_rebalance || 'false' }}
         run: |
-          if [ "${{ github.event.inputs.force_rebalance }}" = "true" ]; then
+          if [ "$FORCE_REBALANCE" = "true" ]; then
             echo "🔄 Force rebalancing enabled"
             python scripts/calculate_index.py --rebalance
           else

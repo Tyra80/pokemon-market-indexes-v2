@@ -1,7 +1,7 @@
 """
 Pokemon Market Indexes v2 - Fetch FX Rates
 ==========================================
-Récupère les taux de change EUR/USD depuis l'API Frankfurter (BCE).
+Fetches EUR/USD exchange rates from the Frankfurter API (ECB).
 
 Usage:
     python scripts/fetch_fx_rates.py
@@ -12,7 +12,7 @@ import os
 import requests
 from datetime import date, timedelta
 
-# Imports locaux
+# Local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.utils import (
     get_db_client, batch_upsert, log_run_start, log_run_end,
@@ -23,7 +23,7 @@ from config.settings import FRANKFURTER_URL
 
 
 def fetch_latest_rate() -> dict:
-    """Récupère le dernier taux EUR/USD."""
+    """Fetches the latest EUR/USD rate."""
     url = f"{FRANKFURTER_URL}/latest"
     params = {"from": "EUR", "to": "USD"}
     
@@ -39,14 +39,14 @@ def fetch_latest_rate() -> dict:
 
 def fetch_historical_rates(start_date: str, end_date: str) -> list:
     """
-    Récupère les taux historiques entre deux dates.
-    
+    Fetches historical rates between two dates.
+
     Args:
-        start_date: Date de début (YYYY-MM-DD)
-        end_date: Date de fin (YYYY-MM-DD)
-    
+        start_date: Start date (YYYY-MM-DD)
+        end_date: End date (YYYY-MM-DD)
+
     Returns:
-        Liste de {"date": str, "eurusd": float}
+        List of {"date": str, "eurusd": float}
     """
     url = f"{FRANKFURTER_URL}/{start_date}..{end_date}"
     params = {"from": "EUR", "to": "USD"}
@@ -67,7 +67,7 @@ def fetch_historical_rates(start_date: str, end_date: str) -> list:
 
 
 def save_fx_rates(client, rates: list) -> dict:
-    """Sauvegarde les taux dans la base."""
+    """Saves the rates to the database."""
     rows = [
         {
             "rate_date": r["date"],
@@ -82,71 +82,71 @@ def save_fx_rates(client, rates: list) -> dict:
 
 def main():
     print_header("🔄 Pokemon Market Indexes - Fetch FX Rates")
-    print(f"📅 Date : {get_today()}")
-    
-    # Connexion
-    print_step(1, "Connexion à Supabase")
+    print(f"📅 Date: {get_today()}")
+
+    # Connection
+    print_step(1, "Connecting to Supabase")
     try:
         client = get_db_client()
-        print_success("Connecté à Supabase")
+        print_success("Connected to Supabase")
     except Exception as e:
-        print_error(f"Connexion échouée : {e}")
+        print_error(f"Connection failed: {e}")
         return
-    
-    # Log du run
+
+    # Log the run
     run_id = log_run_start(client, "fetch_fx")
-    
+
     try:
-        # Récupère les 30 derniers jours
-        print_step(2, "Récupération des taux FX")
-        
+        # Fetch the last 30 days
+        print_step(2, "Fetching FX rates")
+
         today = date.today()
         start_date = (today - timedelta(days=30)).strftime("%Y-%m-%d")
         end_date = today.strftime("%Y-%m-%d")
-        
+
         rates = fetch_historical_rates(start_date, end_date)
-        print_success(f"{len(rates)} taux récupérés")
-        
-        # Sauvegarde
-        print_step(3, "Sauvegarde dans Supabase")
+        print_success(f"{len(rates)} rates fetched")
+
+        # Save
+        print_step(3, "Saving to Supabase")
         result = save_fx_rates(client, rates)
-        print_success(f"{result['saved']} taux sauvegardés")
-        
+        print_success(f"{result['saved']} rates saved")
+
         if result['failed'] > 0:
-            print_error(f"{result['failed']} échecs")
-        
-        # Vérification
-        print_step(4, "Vérification")
+            print_error(f"{result['failed']} failures")
+
+        # Verification
+        print_step(4, "Verification")
         response = client.from_("fx_rates_daily") \
             .select("*") \
             .order("rate_date", desc=True) \
             .limit(5) \
             .execute()
-        
-        print("📊 Derniers taux :")
+
+        print("📊 Latest rates:")
         for row in response.data:
-            print(f"   {row['rate_date']} : {row['eurusd']}")
-        
-        # Log succès
-        log_run_end(client, run_id, "success", 
+            print(f"   {row['rate_date']}: {row['eurusd']}")
+
+        # Log success
+        log_run_end(client, run_id, "success",
                     records_processed=result['saved'],
                     records_failed=result['failed'])
-        
-        # Notification Discord
+
+        # Discord notification
         send_discord_notification(
-            "✅ FX Rates - Succès",
-            f"{result['saved']} taux de change mis à jour."
+            "✅ FX Rates - Success",
+            f"{result['saved']} exchange rates updated."
         )
-        
+
         print()
-        print_success("Script terminé avec succès !")
-        
+        print_success("Script completed successfully!")
+
     except Exception as e:
-        print_error(f"Erreur : {e}")
+        print_error(f"Error: {e}")
         log_run_end(client, run_id, "failed", error_message=str(e))
         send_discord_notification(
-            "❌ FX Rates - Échec",
-            f"Erreur : {str(e)[:200]}",
+            "❌ FX Rates - Failed",
+            f"Error: {str(e)[:200]}",
             success=False
         )
         raise

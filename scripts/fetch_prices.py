@@ -1,12 +1,12 @@
 """
 Pokemon Market Indexes v2 - Fetch Prices
 ========================================
-Récupère les prix des cartes depuis PokemonPriceTracker.
+Fetches card prices from PokemonPriceTracker.
 
-Stratégie optimisée:
-- Utilise /cards?set={name}&fetchAllInSet=true pour récupérer toutes les cartes d'un set avec prix
-- Coût: 1 crédit par carte (vs 1 crédit par requête individuelle)
-- ~26k cartes = ~26k crédits (bien sous les 200k/jour du plan Business)
+Optimized strategy:
+- Uses /cards?set={name}&fetchAllInSet=true to fetch all cards from a set with prices
+- Cost: 1 credit per card (vs 1 credit per individual request)
+- ~26k cards = ~26k credits (well under the 200k/day Business plan limit)
 
 Usage:
     python scripts/fetch_prices.py
@@ -27,12 +27,12 @@ from scripts.utils import (
 )
 from config.settings import PPT_API_KEY, PPT_BASE_URL, LIQUIDITY_WEIGHTS, LIQUIDITY_NORMALIZATION
 
-# Headers d'authentification
+# Authentication headers
 HEADERS = {
     "Authorization": f"Bearer {PPT_API_KEY}",
 }
 
-# Date du jour
+# Today's date
 TODAY = get_today()
 
 # Maximum backoff time in seconds to prevent excessive waits
@@ -41,7 +41,7 @@ MAX_BACKOFF_SECONDS = 60
 
 def api_request(endpoint: str, params: dict = None, max_retries: int = 5) -> dict:
     """
-    Effectue une requête à l'API avec retry automatique.
+    Makes a request to the API with automatic retry.
     Uses exponential backoff with a cap to prevent excessive wait times.
     """
     url = f"{PPT_BASE_URL}{endpoint}"
@@ -85,12 +85,12 @@ def api_request(endpoint: str, params: dict = None, max_retries: int = 5) -> dic
 
 def calculate_liquidity_score(prices_data: dict) -> float:
     """
-    Calcule le score de liquidité custom basé sur les listings.
-    
-    Formule:
-    - 50% : NM listings (normalisé sur 20)
-    - 30% : Total listings (normalisé sur 50)
-    - 20% : Multi-condition (1 si >= 3 conditions avec listings)
+    Calculates custom liquidity score based on listings.
+
+    Formula:
+    - 50%: NM listings (normalized to 20)
+    - 30%: Total listings (normalized to 50)
+    - 20%: Multi-condition (1 if >= 3 conditions with listings)
     """
     if not prices_data:
         return 0.0
@@ -98,11 +98,11 @@ def calculate_liquidity_score(prices_data: dict) -> float:
     conditions = prices_data.get("conditions", {})
     
     if not conditions:
-        # Fallback sur listings global
+        # Fallback to global listings
         total = prices_data.get("listings", 0) or 0
         return min(total / 50, 1.0) * 0.5
-    
-    # Signal 1: Listings Near Mint
+
+    # Signal 1: Near Mint listings
     nm_data = conditions.get("Near Mint", {})
     nm_listings = nm_data.get("listings", 0) if isinstance(nm_data, dict) else 0
     nm_listings = nm_listings or 0
@@ -111,20 +111,20 @@ def calculate_liquidity_score(prices_data: dict) -> float:
     # Signal 2: Total listings
     total_listings = 0
     conditions_with_listings = 0
-    
+
     for cond_name, cond_data in conditions.items():
         if isinstance(cond_data, dict):
             listings = cond_data.get("listings", 0) or 0
             total_listings += listings
             if listings > 0:
                 conditions_with_listings += 1
-    
+
     total_score = min(total_listings / LIQUIDITY_NORMALIZATION.get("total_listings_cap", 50), 1.0)
-    
+
     # Signal 3: Multi-condition
     multi_score = 1.0 if conditions_with_listings >= 3 else (0.5 if conditions_with_listings >= 2 else 0.0)
-    
-    # Score composite
+
+    # Composite score
     liquidity_score = (
         LIQUIDITY_WEIGHTS.get("nm_listings", 0.5) * nm_score +
         LIQUIDITY_WEIGHTS.get("total_listings", 0.3) * total_score +
@@ -136,7 +136,7 @@ def calculate_liquidity_score(prices_data: dict) -> float:
 
 def extract_price_data(card_data: dict) -> dict:
     """
-    Extrait les données de prix d'une carte.
+    Extracts price data from a card.
     """
     if not card_data:
         return None
@@ -148,17 +148,17 @@ def extract_price_data(card_data: dict) -> dict:
     prices = card_data.get("prices", {})
     if not prices:
         return None
-    
+
     conditions = prices.get("conditions", {})
-    
-    # Prix principaux
+
+    # Main prices
     market_price = prices.get("market")
-    
-    # Si pas de prix du tout, skip
+
+    # If no price at all, skip
     if not market_price:
         return None
-    
-    # Prix par condition
+
+    # Price by condition
     nm_data = conditions.get("Near Mint", {}) if conditions else {}
     lp_data = conditions.get("Lightly Played", {}) if conditions else {}
     mp_data = conditions.get("Moderately Played", {}) if conditions else {}
@@ -170,12 +170,12 @@ def extract_price_data(card_data: dict) -> dict:
     for cond_data in conditions.values():
         if isinstance(cond_data, dict):
             total_listings += cond_data.get("listings", 0) or 0
-    
-    # Fallback sur listings global si pas de conditions
+
+    # Fallback to global listings if no conditions
     if total_listings == 0:
         total_listings = prices.get("listings", 0) or 0
-    
-    # Calcul liquidité
+
+    # Calculate liquidity
     liquidity_score = calculate_liquidity_score(prices)
     
     # Last updated
@@ -206,7 +206,7 @@ def extract_price_data(card_data: dict) -> dict:
 
 def fetch_prices_for_set(set_name: str) -> list:
     """
-    Récupère tous les prix d'un set en une seule requête.
+    Fetches all prices for a set in a single request.
     """
     try:
         data = api_request("/cards", {
@@ -218,60 +218,60 @@ def fetch_prices_for_set(set_name: str) -> list:
             return []
         
         cards = data.get("data", [])
-        
+
         if isinstance(cards, dict):
             cards = [cards]
-        
-        # Extrait les prix de chaque carte
+
+        # Extract prices from each card
         prices = []
         for card in cards:
             if card and isinstance(card, dict):
                 price_data = extract_price_data(card)
                 if price_data:
                     prices.append(price_data)
-        
+
         return prices
-        
+
     except Exception as e:
-        print(f"   ⚠️ Erreur: {e}")
+        print(f"   ⚠️ Error: {e}")
         return []
 
 
 def main():
     print_header("💰 Pokemon Market Indexes - Fetch Prices")
-    print(f"📅 Date : {TODAY}")
+    print(f"📅 Date: {TODAY}")
     print()
-    
-    # Connexion
-    print_step(1, "Connexion à Supabase")
+
+    # Connection
+    print_step(1, "Connecting to Supabase")
     try:
         client = get_db_client()
-        print_success("Connecté à Supabase")
+        print_success("Connected to Supabase")
     except Exception as e:
-        print_error(f"Connexion échouée : {e}")
+        print_error(f"Connection failed: {e}")
         return
-    
-    # Log du run
+
+    # Log the run
     run_id = log_run_start(client, "fetch_prices")
     
     total_prices = 0
     total_sets = 0
     
     try:
-        # Récupère la liste des sets depuis la base
-        print_step(2, "Chargement des sets depuis Supabase")
-        
+        # Fetch the list of sets from the database
+        print_step(2, "Loading sets from Supabase")
+
         response = client.from_("sets").select("set_id, name").execute()
         sets = response.data
-        
-        print_success(f"{len(sets)} sets en base")
-        
+
+        print_success(f"{len(sets)} sets in database")
+
         if not sets:
-            print_error("Aucun set en base ! Lance d'abord fetch_cards.py")
+            print_error("No sets in database! Run fetch_cards.py first")
             return
-        
-        # Récupère les prix par set
-        print_step(3, "Récupération des prix par set")
+
+        # Fetch prices by set
+        print_step(3, "Fetching prices by set")
         
         all_prices = []
         
@@ -287,40 +287,40 @@ def main():
             
             if prices:
                 all_prices.extend(prices)
-                print(f"   ✅ {len(prices)} prix")
+                print(f"   ✅ {len(prices)} prices")
             else:
-                print(f"   ⚠️ Aucun prix")
-            
+                print(f"   ⚠️ No prices")
+
             total_sets += 1
-            
-            # Sauvegarde par batch de 2000
+
+            # Save in batches of 2000
             if len(all_prices) >= 2000:
-                result = batch_upsert(client, "card_prices_daily", all_prices, 
+                result = batch_upsert(client, "card_prices_daily", all_prices,
                                       on_conflict="price_date,card_id")
-                print(f"\n   💾 Batch sauvegardé : {result['saved']} prix")
+                print(f"\n   💾 Batch saved: {result['saved']} prices")
                 total_prices += result['saved']
                 all_prices = []
-            
-            # Pause pour rate limit (200 calls/min = 0.3s min, on met 0.5s pour être safe)
+
+            # Pause for rate limit (200 calls/min = 0.3s min, using 0.5s to be safe)
             time.sleep(0.5)
-        
-        # Dernier batch
+
+        # Last batch
         if all_prices:
             result = batch_upsert(client, "card_prices_daily", all_prices,
                                   on_conflict="price_date,card_id")
-            print(f"\n   💾 Dernier batch : {result['saved']} prix")
+            print(f"\n   💾 Last batch: {result['saved']} prices")
             total_prices += result['saved']
-        
-        # Vérification
-        print_step(4, "Vérification")
-        
+
+        # Verification
+        print_step(4, "Verification")
+
         response = client.from_("card_prices_daily") \
             .select("*", count="exact") \
             .eq("price_date", TODAY) \
             .execute()
-        print(f"   Prix aujourd'hui : {response.count}")
-        
-        # Top 5 par prix
+        print(f"   Prices today: {response.count}")
+
+        # Top 5 by price
         response = client.from_("card_prices_daily") \
             .select("card_id, market_price, nm_listings, liquidity_score") \
             .eq("price_date", TODAY) \
@@ -329,38 +329,38 @@ def main():
             .execute()
         
         if response.data:
-            print("\n   📋 Top 5 par prix :")
+            print("\n   📋 Top 5 by price:")
             for row in response.data:
                 print(f"      {row['card_id'][:20]:<20} | ${row['market_price']:>10.2f} | {row['nm_listings'] or 0} NM | liq={row['liquidity_score'] or 0:.2f}")
-        
-        # Log succès
+
+        # Log success
         log_run_end(client, run_id, "success",
                     records_processed=total_prices,
                     details={"sets": total_sets, "prices": total_prices})
-        
-        # Notification Discord
+
+        # Discord notification
         send_discord_notification(
-            "✅ Fetch Prices - Succès",
-            f"{total_prices} prix récupérés pour {total_sets} sets."
+            "✅ Fetch Prices - Success",
+            f"{total_prices} prices fetched for {total_sets} sets."
         )
-        
+
         print()
-        print_header("📊 RÉSUMÉ")
-        print(f"   Sets traités : {total_sets}")
-        print(f"   Prix totaux  : {total_prices}")
+        print_header("📊 SUMMARY")
+        print(f"   Sets processed: {total_sets}")
+        print(f"   Total prices  : {total_prices}")
         print()
-        print_success("Script terminé avec succès !")
-        
+        print_success("Script completed successfully!")
+
     except KeyboardInterrupt:
-        print("\n\n⚠️ Interruption détectée (Ctrl+C)")
+        print("\n\n⚠️ Interrupt detected (Ctrl+C)")
         log_run_end(client, run_id, "interrupted", records_processed=total_prices)
-        
+
     except Exception as e:
-        print_error(f"Erreur : {e}")
+        print_error(f"Error: {e}")
         log_run_end(client, run_id, "failed", error_message=str(e))
         send_discord_notification(
-            "❌ Fetch Prices - Échec",
-            f"Erreur : {str(e)[:200]}",
+            "❌ Fetch Prices - Failed",
+            f"Error: {str(e)[:200]}",
             success=False
         )
         raise

@@ -1,7 +1,7 @@
 """
 Pokemon Market Indexes v2 - Utilities
 =====================================
-Fonctions utilitaires partagées par tous les scripts.
+Utility functions shared by all scripts.
 """
 
 import os
@@ -10,7 +10,7 @@ import requests
 from datetime import datetime, date, timedelta
 from postgrest import SyncPostgrestClient
 
-# Ajoute le dossier parent au path pour les imports
+# Add parent folder to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.settings import (
@@ -28,16 +28,16 @@ from config.settings import (
 
 def get_db_client() -> SyncPostgrestClient:
     """
-    Crée et retourne un client Supabase.
-    
+    Creates and returns a Supabase client.
+
     Returns:
-        SyncPostgrestClient: Client connecté à Supabase
-    
+        SyncPostgrestClient: Client connected to Supabase
+
     Raises:
-        ValueError: Si les credentials sont manquants
+        ValueError: If credentials are missing
     """
     if not SUPABASE_URL or not SUPABASE_KEY:
-        raise ValueError("SUPABASE_URL ou SUPABASE_KEY manquant dans .env")
+        raise ValueError("SUPABASE_URL or SUPABASE_KEY missing in .env")
     
     return SyncPostgrestClient(
         base_url=f"{SUPABASE_URL}/rest/v1",
@@ -54,17 +54,17 @@ def get_db_client() -> SyncPostgrestClient:
 
 def ppt_request(endpoint: str, params: dict = None) -> dict:
     """
-    Effectue une requête à l'API PokemonPriceTracker.
-    
+    Makes a request to the PokemonPriceTracker API.
+
     Args:
-        endpoint: Endpoint API (ex: "/v2/cards")
-        params: Paramètres de requête
-    
+        endpoint: API endpoint (e.g.: "/v2/cards")
+        params: Request parameters
+
     Returns:
-        dict: Réponse JSON
-    
+        dict: JSON response
+
     Raises:
-        requests.HTTPError: Si la requête échoue
+        requests.HTTPError: If the request fails
     """
     url = f"{PPT_BASE_URL}{endpoint}"
     headers = {
@@ -82,28 +82,28 @@ def ppt_request(endpoint: str, params: dict = None) -> dict:
 # Database Pagination Helper
 # ============================================================
 
-def fetch_all_paginated(client, table: str, select: str = "*", 
+def fetch_all_paginated(client, table: str, select: str = "*",
                         filters: dict = None, page_size: int = 1000) -> list:
     """
-    Récupère toutes les lignes d'une table avec pagination.
-    
+    Fetches all rows from a table with pagination.
+
     Args:
-        client: Client Supabase
-        table: Nom de la table
-        select: Colonnes à sélectionner
-        filters: Filtres à appliquer {"column": "value"}
-        page_size: Taille des pages
-    
+        client: Supabase client
+        table: Table name
+        select: Columns to select
+        filters: Filters to apply {"column": "value"}
+        page_size: Page size
+
     Returns:
-        list: Toutes les lignes
+        list: All rows
     """
     all_rows = []
     offset = 0
     
     while True:
         query = client.from_(table).select(select).range(offset, offset + page_size - 1)
-        
-        # Applique les filtres
+
+        # Apply filters
         if filters:
             for col, val in filters.items():
                 query = query.eq(col, val)
@@ -130,14 +130,14 @@ def fetch_all_paginated(client, table: str, select: str = "*",
 def batch_upsert(client, table: str, rows: list,
                  batch_size: int = 500, on_conflict: str = None) -> dict:
     """
-    Insère des lignes en batch avec upsert.
+    Inserts rows in batches with upsert.
 
     Args:
-        client: Client Supabase
-        table: Nom de la table
-        rows: Lignes à insérer
-        batch_size: Taille des batches
-        on_conflict: Colonnes pour l'upsert
+        client: Supabase client
+        table: Table name
+        rows: Rows to insert
+        batch_size: Batch size
+        on_conflict: Columns for upsert
 
     Returns:
         dict: {"saved": int, "failed": int, "errors": list}
@@ -205,10 +205,10 @@ def batch_upsert(client, table: str, rows: list,
 
 def log_run_start(client, run_type: str) -> int:
     """
-    Enregistre le début d'une exécution.
+    Records the start of a run.
 
     Returns:
-        int: ID du run, or None if logging failed
+        int: Run ID, or None if logging failed
     """
     try:
         response = client.from_("run_logs").insert({
@@ -225,7 +225,7 @@ def log_run_end(client, run_id: int, status: str,
                 records_processed: int = 0, records_failed: int = 0,
                 error_message: str = None, details: dict = None):
     """
-    Enregistre la fin d'une exécution.
+    Records the end of a run.
     """
     if not run_id:
         return
@@ -238,7 +238,7 @@ def log_run_end(client, run_id: int, status: str,
             "records_failed": records_failed,
         }
         if error_message:
-            update_data["error_message"] = error_message[:500]  # Truncate long errors
+            update_data["error_message"] = error_message[:500]
         if details:
             update_data["details"] = details
 
@@ -254,19 +254,19 @@ def log_run_end(client, run_id: int, status: str,
 def send_discord_notification(title: str, description: str,
                               color: int = 5763719, success: bool = True):
     """
-    Envoie une notification Discord.
+    Sends a Discord notification.
 
     Args:
-        title: Titre du message
+        title: Message title
         description: Description
-        color: Couleur (vert par défaut)
-        success: True=vert, False=rouge
+        color: Color (green by default)
+        success: True=green, False=red
     """
     if not DISCORD_WEBHOOK_URL:
         return
 
     if not success:
-        color = 15548997  # Rouge
+        color = 15548997  # Red
 
     payload = {
         "embeds": [{
@@ -291,17 +291,17 @@ def send_discord_notification(title: str, description: str,
 # ============================================================
 
 def get_today() -> str:
-    """Retourne la date du jour au format YYYY-MM-DD."""
+    """Returns today's date in YYYY-MM-DD format."""
     return date.today().strftime("%Y-%m-%d")
 
 
 def get_current_month() -> str:
-    """Retourne le premier jour du mois courant au format YYYY-MM-DD."""
+    """Returns the first day of the current month in YYYY-MM-DD format."""
     return date.today().replace(day=1).strftime("%Y-%m-%d")
 
 
 def get_last_sunday() -> str:
-    """Retourne la date du dernier dimanche au format YYYY-MM-DD."""
+    """Returns the date of the last Sunday in YYYY-MM-DD format."""
     today = date.today()
     days_since_sunday = (today.weekday() + 1) % 7
     last_sunday = today - timedelta(days=days_since_sunday)
@@ -313,7 +313,7 @@ def get_last_sunday() -> str:
 # ============================================================
 
 def print_header(title: str):
-    """Affiche un header formaté."""
+    """Displays a formatted header."""
     print()
     print("=" * 70)
     print(f"  {title}")
@@ -321,28 +321,28 @@ def print_header(title: str):
 
 
 def print_step(step: int, title: str):
-    """Affiche une étape."""
+    """Displays a step."""
     print()
-    print(f"📌 Étape {step} : {title}")
+    print(f"📌 Step {step}: {title}")
     print("-" * 60)
 
 
 def print_success(message: str):
-    """Affiche un message de succès."""
+    """Displays a success message."""
     print(f"✅ {message}")
 
 
 def print_error(message: str):
-    """Affiche un message d'erreur."""
+    """Displays an error message."""
     print(f"❌ {message}")
 
 
 def print_warning(message: str):
-    """Affiche un avertissement."""
+    """Displays a warning."""
     print(f"⚠️  {message}")
 
 
 def print_progress(current: int, total: int, prefix: str = ""):
-    """Affiche la progression."""
+    """Displays progress."""
     pct = current * 100 // total if total > 0 else 0
     print(f"   ⏳ {prefix}{current}/{total} ({pct}%)")

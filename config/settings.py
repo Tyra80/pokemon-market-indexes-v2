@@ -1,13 +1,13 @@
 """
 Pokemon Market Indexes v2 - Configuration
 =========================================
-Centralise toute la configuration du projet.
+Centralizes all project configuration.
 """
 
 import os
 from dotenv import load_dotenv
 
-# Charge les variables d'environnement
+# Load environment variables
 load_dotenv()
 
 # ============================================================
@@ -73,67 +73,67 @@ INDEX_CONFIG = {
 # Rarity Configuration
 # ============================================================
 
-# Rarités considérées comme "Rare" ou supérieur
-# Basé sur les données réelles de PokemonPriceTracker API
+# Rarities considered as "Rare" or higher
+# Based on actual data from PokemonPriceTracker API
 RARE_RARITIES = [
     # Standard Rares
-    "Rare",                         # 3164 cartes
-    "Holo Rare",                    # 1845 cartes
-    "Shiny Holo Rare",              # 246 cartes
-    
+    "Rare",                         # 3164 cards
+    "Holo Rare",                    # 1845 cards
+    "Shiny Holo Rare",              # 246 cards
+
     # Ultra/Secret
-    "Ultra Rare",                   # 2433 cartes
-    "Secret Rare",                  # 631 cartes
-    "Hyper Rare",                   # 74 cartes
-    "Mega Hyper Rare",              # 3 cartes
-    
+    "Ultra Rare",                   # 2433 cards
+    "Secret Rare",                  # 631 cards
+    "Hyper Rare",                   # 74 cards
+    "Mega Hyper Rare",              # 3 cards
+
     # Illustration
-    "Illustration Rare",            # 432 cartes
-    "Special Illustration Rare",    # 181 cartes
-    "Double Rare",                  # 368 cartes
-    
+    "Illustration Rare",            # 432 cards
+    "Special Illustration Rare",    # 181 cards
+    "Double Rare",                  # 368 cards
+
     # Shiny
-    "Shiny Rare",                   # 120 cartes
-    "Shiny Ultra Rare",             # 12 cartes
-    
+    "Shiny Rare",                   # 120 cards
+    "Shiny Ultra Rare",             # 12 cards
+
     # Special
-    "Amazing Rare",                 # 9 cartes
-    "Radiant Rare",                 # 32 cartes
-    "Prism Rare",                   # 33 cartes
-    "ACE SPEC Rare",                # 54 cartes
-    "Rare BREAK",                   # 28 cartes
-    "Rare Ace",                     # 14 cartes
-    "Black White Rare",             # 4 cartes
-    
-    # Promos (inclus car souvent des cartes de valeur)
-    "Promo",                        # 3513 cartes
-    
-    # Collections spéciales
-    "Classic Collection",           # 129 cartes
+    "Amazing Rare",                 # 9 cards
+    "Radiant Rare",                 # 32 cards
+    "Prism Rare",                   # 33 cards
+    "ACE SPEC Rare",                # 54 cards
+    "Rare BREAK",                   # 28 cards
+    "Rare Ace",                     # 14 cards
+    "Black White Rare",             # 4 cards
+
+    # Promos (included because they're often valuable cards)
+    "Promo",                        # 3513 cards
+
+    # Special collections
+    "Classic Collection",           # 129 cards
 ]
 
-# Raretés EXCLUES (non-collectibles ou faible valeur):
+# EXCLUDED rarities (non-collectible or low value):
 # - Common (6257)
 # - Uncommon (6005)
 # - Code Card (462)
 # - Unconfirmed (66)
-# - (VIDE) (93)
+# - (EMPTY) (93)
 
 # ============================================================
 # Liquidity Configuration
 # ============================================================
 
-# Poids pour le calcul du score de liquidité custom
+# Weights for custom liquidity score calculation
 LIQUIDITY_WEIGHTS = {
-    "nm_listings": 0.50,      # Nombre de listings Near Mint
-    "total_listings": 0.30,   # Profondeur du marché
-    "multi_condition": 0.20,  # Présence de plusieurs conditions
+    "nm_listings": 0.50,      # Number of Near Mint listings
+    "total_listings": 0.30,   # Market depth
+    "multi_condition": 0.20,  # Presence of multiple conditions
 }
 
-# Seuils pour normalisation
+# Thresholds for normalization
 LIQUIDITY_NORMALIZATION = {
-    "nm_listings_cap": 20,    # 20+ listings NM = score max
-    "total_listings_cap": 50, # 50+ listings total = score max
+    "nm_listings_cap": 20,    # 20+ NM listings = max score
+    "total_listings_cap": 50, # 50+ total listings = max score
 }
 
 # ============================================================
@@ -171,17 +171,17 @@ OUTLIER_RULES = {
 # ============================================================
 
 def validate_config():
-    """Vérifie que toute la configuration est présente."""
+    """Verifies that all configuration is present."""
     errors = []
-    
+
     if not SUPABASE_URL:
-        errors.append("SUPABASE_URL manquant")
+        errors.append("SUPABASE_URL missing")
     if not SUPABASE_KEY:
-        errors.append("SUPABASE_KEY manquant")
+        errors.append("SUPABASE_KEY missing")
     if not PPT_API_KEY:
-        errors.append("PPT_API_KEY manquant")
-    
+        errors.append("PPT_API_KEY missing")
+
     if errors:
-        raise ValueError(f"Configuration incomplète: {', '.join(errors)}")
-    
+        raise ValueError(f"Incomplete configuration: {', '.join(errors)}")
+
     return True

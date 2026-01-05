@@ -240,7 +240,7 @@ export async function getConstituents(indexCode) {
   return result
 }
 
-// Helper: Fetch cards by IDs in batches
+// Helper: Fetch cards by IDs in batches (with set name from sets table)
 async function fetchCardsByIds(cardIds) {
   if (!isSupabaseConfigured() || !cardIds || cardIds.length === 0) return null
   
@@ -250,18 +250,42 @@ async function fetchCardsByIds(cardIds) {
   for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
     const batchIds = cardIds.slice(i, i + BATCH_SIZE)
     
+    // Jointure avec la table sets pour récupérer le nom du set
     const { data, error } = await supabase
       .from('cards')
-      .select('card_id, name, set_id, set_name, card_number, rarity, tcgplayer_id, ppt_id')
+      .select(`
+        card_id, 
+        name, 
+        set_id, 
+        card_number, 
+        rarity, 
+        tcgplayer_id, 
+        ppt_id,
+        sets!inner(name)
+      `)
       .in('card_id', batchIds)
     
     if (error) {
       console.error('Error fetching cards batch:', error)
+      // Fallback sans jointure si erreur
+      const { data: fallbackData } = await supabase
+        .from('cards')
+        .select('card_id, name, set_id, card_number, rarity, tcgplayer_id, ppt_id')
+        .in('card_id', batchIds)
+      if (fallbackData) {
+        allCards = allCards.concat(fallbackData.map(c => ({ ...c, set_name: null })))
+      }
       continue
     }
     
     if (data) {
-      allCards = allCards.concat(data)
+      // Extraire le nom du set depuis la jointure
+      const cardsWithSetName = data.map(card => ({
+        ...card,
+        set_name: card.sets?.name || null,
+        sets: undefined // Remove nested object
+      }))
+      allCards = allCards.concat(cardsWithSetName)
     }
   }
   
@@ -317,18 +341,53 @@ async function fetchLatestPricesByCardIds(cardIds) {
 export async function getAllEligibleCards() {
   if (!isSupabaseConfigured()) return null
   
-  // Récupérer les cartes éligibles (avec pagination)
-  const cards = await fetchAllPaginated(
-    'cards',
-    'card_id, name, set_id, set_name, card_number, rarity, tcgplayer_id, ppt_id',
-    { is_eligible: true },
-    { column: 'name', ascending: true }
-  )
+  // Récupérer les cartes éligibles avec jointure sets (avec pagination manuelle)
+  const PAGE_SIZE = 1000
+  let allCards = []
+  let offset = 0
   
-  if (!cards || cards.length === 0) {
+  while (true) {
+    const { data, error } = await supabase
+      .from('cards')
+      .select(`
+        card_id, 
+        name, 
+        set_id, 
+        card_number, 
+        rarity, 
+        tcgplayer_id, 
+        ppt_id,
+        sets(name)
+      `)
+      .eq('is_eligible', true)
+      .order('name', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+    
+    if (error) {
+      console.error('Error fetching eligible cards:', error)
+      break
+    }
+    
+    if (!data || data.length === 0) break
+    
+    // Extraire le nom du set
+    const cardsWithSetName = data.map(card => ({
+      ...card,
+      set_name: card.sets?.name || null,
+      sets: undefined
+    }))
+    allCards = allCards.concat(cardsWithSetName)
+    
+    if (data.length < PAGE_SIZE) break
+    offset += PAGE_SIZE
+  }
+  
+  if (allCards.length === 0) {
     console.error('No eligible cards found')
     return null
   }
+  
+  const cards = allCards
   
   // Récupérer les constituants actuels pour savoir dans quels index chaque carte est
   const allConstituents = await fetchAllPaginated(

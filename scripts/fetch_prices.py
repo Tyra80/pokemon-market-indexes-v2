@@ -167,33 +167,31 @@ def extract_price_data(card_data: dict, price_date: str) -> dict:
         total_listings = prices.get("listings", 0) or 0
     
     # =========================================================================
-    # NEW: Extract sales volume from priceHistory
+    # NEW: Extract sales volume from priceHistory (J-1 for consolidated data)
     # =========================================================================
     nm_volume = None
     lp_volume = None
     mp_volume = None
     hp_volume = None
     dmg_volume = None
-    daily_volume = 0
     
     price_history = card_data.get("priceHistory", {})
     if price_history and isinstance(price_history, dict):
         conditions_history = price_history.get("conditions", {})
         
-        # For each condition, get the volume from the last day
+        # For each condition, get the volume from YESTERDAY (J-1)
+        # because today's volume may not be consolidated yet
         for cond_name, cond_history in conditions_history.items():
             if not isinstance(cond_history, dict):
                 continue
             
             history_list = cond_history.get("history", [])
-            if history_list and len(history_list) > 0:
-                # Last entry = today
-                latest = history_list[-1]
-                if isinstance(latest, dict):
-                    vol = latest.get("volume")
+            if history_list and len(history_list) >= 2:
+                # Take J-1 (yesterday) for consolidated volume
+                yesterday = history_list[-2]
+                if isinstance(yesterday, dict):
+                    vol = yesterday.get("volume")
                     if vol is not None:
-                        daily_volume += vol
-                        
                         # Assign to correct field
                         if cond_name == "Near Mint":
                             nm_volume = vol
@@ -207,17 +205,21 @@ def extract_price_data(card_data: dict, price_date: str) -> dict:
                             dmg_volume = vol
     
     # =========================================================================
-    # Liquidity calculation - NEW FORMULA based on real volume
+    # Liquidity calculation - Based on weighted volume
     # =========================================================================
-    if daily_volume > 0:
-        # Liquidity based on real volume (weighted by condition)
-        weighted_volume = (
-            (nm_volume or 0) * CONDITION_WEIGHTS.get("Near Mint", 1.0) +
-            (lp_volume or 0) * CONDITION_WEIGHTS.get("Lightly Played", 0.8) +
-            (mp_volume or 0) * CONDITION_WEIGHTS.get("Moderately Played", 0.6) +
-            (hp_volume or 0) * CONDITION_WEIGHTS.get("Heavily Played", 0.4) +
-            (dmg_volume or 0) * CONDITION_WEIGHTS.get("Damaged", 0.2)
-        )
+    # Calculate weighted volume (condition-adjusted)
+    weighted_volume = (
+        (nm_volume or 0) * CONDITION_WEIGHTS.get("Near Mint", 1.0) +
+        (lp_volume or 0) * CONDITION_WEIGHTS.get("Lightly Played", 0.8) +
+        (mp_volume or 0) * CONDITION_WEIGHTS.get("Moderately Played", 0.6) +
+        (hp_volume or 0) * CONDITION_WEIGHTS.get("Heavily Played", 0.4) +
+        (dmg_volume or 0) * CONDITION_WEIGHTS.get("Damaged", 0.2)
+    )
+    
+    # daily_volume = weighted volume (Option B)
+    daily_volume = weighted_volume if weighted_volume > 0 else None
+    
+    if weighted_volume > 0:
         # Score = weighted volume / cap (e.g., 50 sales/day = max score)
         liquidity_score = min(weighted_volume / VOLUME_CAP, 1.0)
     else:
@@ -245,7 +247,7 @@ def extract_price_data(card_data: dict, price_date: str) -> dict:
         "dmg_price": dmg_data.get("price") if isinstance(dmg_data, dict) else None,
         "dmg_listings": dmg_data.get("listings") if isinstance(dmg_data, dict) else None,
         "total_listings": total_listings,
-        "daily_volume": daily_volume if daily_volume > 0 else None,
+        "daily_volume": daily_volume,  # Now = weighted volume
         "nm_volume": nm_volume,
         "lp_volume": lp_volume,
         "mp_volume": mp_volume,
@@ -327,8 +329,9 @@ def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = T
 
 
 def main():
-    # Set date once at the start of the run
-    today = get_today()
+    from datetime import date, timedelta
+    # Prices fetched at 06:00 UTC are yesterday's closing (US time)
+    today = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     print_header("💰 Pokemon Market Indexes - Fetch Prices (with Volume)")
     print(f"📅 Date: {today}")

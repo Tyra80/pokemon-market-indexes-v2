@@ -215,7 +215,8 @@ export async function getConstituents(indexCode) {
     return {
       id: c.item_id,
       name: card.name || c.item_id,
-      set: card.set_id || 'Unknown',
+      set: card.set_name || card.set_id || 'Unknown',
+      setId: card.set_id,
       number: card.card_number || '',
       rarity: card.rarity || 'Rare',
       price: parseFloat(price.market_price || c.composite_price || 0),
@@ -227,7 +228,12 @@ export async function getConstituents(indexCode) {
       tcgplayerId: card.tcgplayer_id,
       pptId: card.ppt_id,
       sales: price.daily_volume || 0,
-      change: 0
+      change: 0,
+      // Flag pour l'index courant
+      indexCode: indexCode,
+      inRare100: indexCode === 'RARE_100',
+      inRare500: indexCode === 'RARE_100' || indexCode === 'RARE_500',
+      inRareAll: true
     }
   })
   
@@ -246,7 +252,7 @@ async function fetchCardsByIds(cardIds) {
     
     const { data, error } = await supabase
       .from('cards')
-      .select('card_id, name, set_id, card_number, rarity, tcgplayer_id, ppt_id')
+      .select('card_id, name, set_id, set_name, card_number, rarity, tcgplayer_id, ppt_id')
       .in('card_id', batchIds)
     
     if (error) {
@@ -314,7 +320,7 @@ export async function getAllEligibleCards() {
   // Récupérer les cartes éligibles (avec pagination)
   const cards = await fetchAllPaginated(
     'cards',
-    'card_id, name, set_id, card_number, rarity, tcgplayer_id, ppt_id',
+    'card_id, name, set_id, set_name, card_number, rarity, tcgplayer_id, ppt_id',
     { is_eligible: true },
     { column: 'name', ascending: true }
   )
@@ -368,7 +374,8 @@ export async function getAllEligibleCards() {
     return {
       id: card.card_id,
       name: card.name || card.card_id,
-      set: card.set_id || 'Unknown',
+      set: card.set_name || card.set_id || 'Unknown',
+      setId: card.set_id,
       number: card.card_number || '',
       rarity: card.rarity || 'Rare',
       price: parseFloat(price.market_price || price.nm_price || 0),

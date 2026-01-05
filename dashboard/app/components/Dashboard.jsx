@@ -291,6 +291,7 @@ const CardImage = ({ tcgplayerId, name, size = 'small' }) => {
       <img
         src={imageUrl}
         alt={name || 'Pokemon Card'}
+        loading="lazy"
         style={{
           width: '100%',
           height: '100%',
@@ -511,11 +512,28 @@ const SparkLine = ({ data, color, height = 40 }) => {
 
 const IndexCard = ({ code, name, data, latestData, isSelected, onClick }) => {
   const latestValue = latestData?.index_value || data[data.length - 1]?.value || 100;
-  const change1d = latestData?.change_1d;
-  const change1m = latestData?.change_1m;
   
-  const startValue = data[0]?.value || 100;
-  const totalChange = change1m !== undefined ? change1m : ((latestValue - startValue) / startValue) * 100;
+  // Calculer change_1d depuis les données si non disponible
+  let change1d = latestData?.change_1d;
+  if ((change1d === null || change1d === undefined) && data.length >= 2) {
+    const yesterday = data[data.length - 2]?.value;
+    const today = data[data.length - 1]?.value;
+    if (yesterday && today) {
+      change1d = ((today - yesterday) / yesterday) * 100;
+    }
+  }
+  
+  // Calculer change_1m depuis les données si non disponible
+  let change1m = latestData?.change_1m;
+  if ((change1m === null || change1m === undefined) && data.length >= 30) {
+    const monthAgo = data[data.length - 30]?.value;
+    const today = data[data.length - 1]?.value;
+    if (monthAgo && today) {
+      change1m = ((today - monthAgo) / monthAgo) * 100;
+    }
+  }
+  
+  const totalChange = change1m;
   
   return (
     <div
@@ -1156,7 +1174,7 @@ const DashboardPage = ({
         constituents={constituents[selectedIndex]}
         onCardClick={onCardClick}
         selectedCard={selectedCard}
-        limit={10}
+        limit={20}
         loading={loading}
       />
     </>

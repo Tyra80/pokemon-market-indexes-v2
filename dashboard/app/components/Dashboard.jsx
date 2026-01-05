@@ -615,7 +615,26 @@ const IndexCard = ({ code, name, data, latestData, isSelected, onClick }) => {
 };
 
 const MainChart = ({ data, indexCode }) => {
+  const [period, setPeriod] = React.useState('ITD'); // ITD, 30D, 1Y
   const color = colors.chart[indexCode];
+  
+  // Filtrer les données selon la période
+  const filteredData = React.useMemo(() => {
+    if (!data || data.length === 0) return [];
+    
+    if (period === 'ITD') return data;
+    
+    const now = new Date();
+    let cutoffDate;
+    
+    if (period === '30D') {
+      cutoffDate = new Date(now.setDate(now.getDate() - 30));
+    } else if (period === '1Y') {
+      cutoffDate = new Date(now.setFullYear(now.getFullYear() - 1));
+    }
+    
+    return data.filter(d => new Date(d.date) >= cutoffDate);
+  }, [data, period]);
   
   if (!data || data.length === 0) {
     return (
@@ -634,6 +653,25 @@ const MainChart = ({ data, indexCode }) => {
       </div>
     );
   }
+  
+  const PeriodButton = ({ value, label }) => (
+    <button
+      onClick={() => setPeriod(value)}
+      style={{
+        padding: '6px 12px',
+        borderRadius: '6px',
+        border: 'none',
+        background: period === value ? colors.accent.gold : colors.bg.tertiary,
+        color: period === value ? colors.bg.primary : colors.text.secondary,
+        fontSize: '0.75rem',
+        fontWeight: 600,
+        cursor: 'pointer',
+        transition: 'all 0.2s'
+      }}
+    >
+      {label}
+    </button>
+  );
   
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.[0]) return null;
@@ -682,10 +720,16 @@ const MainChart = ({ data, indexCode }) => {
         }}>
           Index Performance
         </h3>
+        
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <PeriodButton value="30D" label="30D" />
+          <PeriodButton value="1Y" label="1Y" />
+          <PeriodButton value="ITD" label="ITD" />
+        </div>
       </div>
       
       <ResponsiveContainer width="100%" height={350}>
-        <AreaChart data={data}>
+        <AreaChart data={filteredData}>
           <defs>
             <linearGradient id="mainChartGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={color} stopOpacity={0.2} />

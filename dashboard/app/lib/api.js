@@ -240,9 +240,39 @@ export async function getConstituents(indexCode) {
   return result
 }
 
-// Helper: Fetch cards by IDs in batches (with set name from sets table)
+// Helper: Fetch all sets for name lookup
+let setsCache = null
+async function fetchAllSets() {
+  if (setsCache) return setsCache
+  
+  if (!isSupabaseConfigured()) return {}
+  
+  const { data, error } = await supabase
+    .from('sets')
+    .select('set_id, name')
+  
+  if (error) {
+    console.error('Error fetching sets:', error)
+    return {}
+  }
+  
+  // Create a map of set_id -> name
+  setsCache = {}
+  if (data) {
+    data.forEach(s => {
+      setsCache[s.set_id] = s.name
+    })
+  }
+  
+  return setsCache
+}
+
+// Helper: Fetch cards by IDs in batches (with set name lookup)
 async function fetchCardsByIds(cardIds) {
   if (!isSupabaseConfigured() || !cardIds || cardIds.length === 0) return null
+  
+  // First, get all sets for name lookup
+  const setsMap = await fetchAllSets()
   
   const BATCH_SIZE = 100
   let allCards = []
@@ -250,40 +280,21 @@ async function fetchCardsByIds(cardIds) {
   for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
     const batchIds = cardIds.slice(i, i + BATCH_SIZE)
     
-    // Jointure avec la table sets pour récupérer le nom du set
     const { data, error } = await supabase
       .from('cards')
-      .select(`
-        card_id, 
-        name, 
-        set_id, 
-        card_number, 
-        rarity, 
-        tcgplayer_id, 
-        ppt_id,
-        sets!inner(name)
-      `)
+      .select('card_id, name, set_id, card_number, rarity, tcgplayer_id, ppt_id')
       .in('card_id', batchIds)
     
     if (error) {
       console.error('Error fetching cards batch:', error)
-      // Fallback sans jointure si erreur
-      const { data: fallbackData } = await supabase
-        .from('cards')
-        .select('card_id, name, set_id, card_number, rarity, tcgplayer_id, ppt_id')
-        .in('card_id', batchIds)
-      if (fallbackData) {
-        allCards = allCards.concat(fallbackData.map(c => ({ ...c, set_name: null })))
-      }
       continue
     }
     
     if (data) {
-      // Extraire le nom du set depuis la jointure
+      // Add set_name from lookup
       const cardsWithSetName = data.map(card => ({
         ...card,
-        set_name: card.sets?.name || null,
-        sets: undefined // Remove nested object
+        set_name: setsMap[card.set_id] || null
       }))
       allCards = allCards.concat(cardsWithSetName)
     }
@@ -341,7 +352,10 @@ async function fetchLatestPricesByCardIds(cardIds) {
 export async function getAllEligibleCards() {
   if (!isSupabaseConfigured()) return null
   
-  // Récupérer les cartes éligibles avec jointure sets (avec pagination manuelle)
+  // First, get all sets for name lookup
+  const setsMap = await fetchAllSets()
+  
+  // Récupérer les cartes éligibles avec pagination
   const PAGE_SIZE = 1000
   let allCards = []
   let offset = 0
@@ -349,16 +363,7 @@ export async function getAllEligibleCards() {
   while (true) {
     const { data, error } = await supabase
       .from('cards')
-      .select(`
-        card_id, 
-        name, 
-        set_id, 
-        card_number, 
-        rarity, 
-        tcgplayer_id, 
-        ppt_id,
-        sets(name)
-      `)
+      .select('card_id, name, set_id, card_number, rarity, tcgplayer_id, ppt_id')
       .eq('is_eligible', true)
       .order('name', { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1)
@@ -370,11 +375,10 @@ export async function getAllEligibleCards() {
     
     if (!data || data.length === 0) break
     
-    // Extraire le nom du set
+    // Add set_name from lookup
     const cardsWithSetName = data.map(card => ({
       ...card,
-      set_name: card.sets?.name || null,
-      sets: undefined
+      set_name: setsMap[card.set_id] || null
     }))
     allCards = allCards.concat(cardsWithSetName)
     

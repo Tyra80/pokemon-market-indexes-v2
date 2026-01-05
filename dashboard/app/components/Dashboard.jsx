@@ -244,8 +244,11 @@ const CardImage = ({ tcgplayerId, name, size = 'small' }) => {
   const sizeStyles = {
     small: { width: '36px', height: '50px' },
     medium: { width: '60px', height: '84px' },
-    large: { width: '100%', height: '280px' }
+    large: { width: '100%', height: '320px' }
   };
+  
+  // Pour large, on utilise contain pour voir la carte entière
+  const objectFit = size === 'large' ? 'contain' : 'cover';
   
   const imageUrl = getCardImageUrl(tcgplayerId, size === 'large' ? 800 : 400);
   
@@ -273,7 +276,7 @@ const CardImage = ({ tcgplayerId, name, size = 'small' }) => {
       position: 'relative',
       borderRadius: size === 'large' ? '12px' : '4px',
       overflow: 'hidden',
-      background: `linear-gradient(135deg, ${colors.accent.gold}20, ${colors.accent.purple}20)`
+      background: colors.bg.tertiary
     }}>
       {!imageLoaded && (
         <div style={{
@@ -295,7 +298,7 @@ const CardImage = ({ tcgplayerId, name, size = 'small' }) => {
         style={{
           width: '100%',
           height: '100%',
-          objectFit: 'cover',
+          objectFit: objectFit,
           opacity: imageLoaded ? 1 : 0,
           transition: 'opacity 0.3s'
         }}

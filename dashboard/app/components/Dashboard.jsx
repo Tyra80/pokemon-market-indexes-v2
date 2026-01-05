@@ -1,8 +1,12 @@
-import React, { useState, useMemo } from 'react';
+'use client'
+
+import React, { useState, useMemo, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart, CartesianGrid } from 'recharts';
+import { getAllIndexHistory, getLatestIndexValues, getConstituents, getAllEligibleCards, getCardPriceHistory } from '../lib/api';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 // ============================================================================
-// MOCK DATA - Simulating your Supabase data
+// MOCK DATA - Fallback when Supabase is not configured or has no data
 // ============================================================================
 
 const generateIndexData = (baseValue, volatility, trend, days = 90) => {
@@ -33,57 +37,39 @@ const MOCK_INDEX_DATA = {
   RARE_ALL: generateIndexData(100, 1.5, 0.08)
 };
 
-const generateAllCards = () => {
-  const sets = ['Surging Sparks', 'Stellar Crown', 'Twilight Masquerade', 'Temporal Forces', 'Paldea Evolved', 'Obsidian Flames', 'Scarlet & Violet Base'];
-  const rarities = ['Special Art Rare', 'Ultra Rare', 'Illustration Rare', 'Holo Rare', 'Rare'];
+const generateMockConstituents = (count) => {
   const pokemonNames = [
-    'Charizard', 'Pikachu', 'Umbreon', 'Mew', 'Gardevoir', 'Arceus', 'Rayquaza', 'Gengar', 'Miraidon', 'Lucario',
-    'Eevee', 'Snorlax', 'Dragonite', 'Mewtwo', 'Gyarados', 'Alakazam', 'Blastoise', 'Venusaur', 'Jolteon', 'Flareon',
-    'Vaporeon', 'Espeon', 'Leafeon', 'Glaceon', 'Sylveon', 'Tyranitar', 'Salamence', 'Metagross', 'Garchomp', 'Dialga',
-    'Palkia', 'Giratina', 'Darkrai', 'Cresselia', 'Reshiram', 'Zekrom', 'Kyurem', 'Xerneas', 'Yveltal', 'Zygarde',
-    'Solgaleo', 'Lunala', 'Necrozma', 'Zacian', 'Zamazenta', 'Eternatus', 'Calyrex', 'Koraidon', 'Terapagos', 'Pecharunt'
+    'Charizard ex', 'Pikachu ex', 'Umbreon ex', 'Mew ex', 'Gardevoir ex', 'Arceus VSTAR', 'Rayquaza ex', 'Gengar ex', 'Miraidon ex', 'Lucario ex',
+    'Eevee', 'Snorlax', 'Dragonite', 'Mewtwo', 'Gyarados', 'Alakazam', 'Blastoise', 'Venusaur', 'Jolteon', 'Flareon'
   ];
+  const sets = ['Surging Sparks', 'Stellar Crown', 'Twilight Masquerade', 'Temporal Forces', 'Paldea Evolved'];
+  const rarities = ['Special Art Rare', 'Ultra Rare', 'Illustration Rare', 'Holo Rare', 'Rare'];
   
-  const cards = [];
-  
-  for (let i = 0; i < 150; i++) {
-    const pokemon = pokemonNames[i % pokemonNames.length];
-    const set = sets[Math.floor(Math.random() * sets.length)];
-    const rarity = rarities[Math.floor(i / 30)];
-    const isInTop100 = i < 100;
-    const isInTop500 = i < 150;
-    const price = Math.max(5, 100 - i * 0.5 + Math.random() * 20);
-    
-    cards.push({
-      id: `card-${i}`,
-      name: `${pokemon} ${['ex', 'VSTAR', 'VMAX', 'V', ''][Math.floor(Math.random() * 5)]}`.trim(),
-      set,
-      number: `${100 + (i % 100)}/${150 + Math.floor(Math.random() * 50)}`,
-      rarity,
-      price: Math.round(price * 100) / 100,
-      change: Math.round((Math.random() - 0.5) * 20 * 10) / 10,
-      weight: Math.round((3 - i * 0.02) * 100) / 100,
-      sales: Math.floor(100 + Math.random() * 1000),
-      inRare100: isInTop100,
-      inRare500: isInTop500,
-      inRareAll: true,
-      tcgplayerId: `${400000 + i}`,
-      lastUpdated: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    });
-  }
-  
-  return cards;
+  return Array.from({ length: count }, (_, i) => ({
+    id: `mock-card-${i}`,
+    name: pokemonNames[i % pokemonNames.length],
+    set: sets[i % sets.length],
+    number: `${100 + i}/191`,
+    rarity: rarities[Math.floor(i / 20) % rarities.length],
+    price: Math.round((100 - i * 0.8) * 100) / 100,
+    change: Math.round((Math.random() - 0.5) * 20 * 10) / 10,
+    weight: Math.round((0.03 - i * 0.0002) * 10000) / 10000,
+    sales: Math.floor(200 + Math.random() * 800),
+    rank: i + 1,
+    tcgplayerId: `${400000 + i}`,
+    inRare100: i < 100,
+    inRare500: true,
+    inRareAll: true
+  }));
 };
-
-const ALL_CARDS = generateAllCards();
 
 const MOCK_CONSTITUENTS = {
-  RARE_100: ALL_CARDS.filter(c => c.inRare100),
-  RARE_500: ALL_CARDS.filter(c => c.inRare500),
-  RARE_ALL: ALL_CARDS
+  RARE_100: generateMockConstituents(100),
+  RARE_500: generateMockConstituents(150),
+  RARE_ALL: generateMockConstituents(150)
 };
 
-const generateCardPriceHistory = (currentPrice, days = 180) => {
+const generateCardPriceHistoryMock = (currentPrice, days = 180) => {
   const data = [];
   let price = currentPrice * (0.7 + Math.random() * 0.3);
   const startDate = new Date();
@@ -139,10 +125,11 @@ const colors = {
 };
 
 // ============================================================================
-// UTILITY COMPONENTS
+// UTILITY FUNCTIONS
 // ============================================================================
 
 const formatNumber = (num, decimals = 2) => {
+  if (num === null || num === undefined || isNaN(num)) return '—';
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
@@ -150,13 +137,22 @@ const formatNumber = (num, decimals = 2) => {
 };
 
 const formatCurrency = (num) => {
+  if (num === null || num === undefined || isNaN(num)) return '—';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD'
   }).format(num);
 };
 
+// ============================================================================
+// UTILITY COMPONENTS
+// ============================================================================
+
 const ChangeIndicator = ({ value, size = 'normal' }) => {
+  if (value === null || value === undefined || isNaN(value)) {
+    return <span style={{ color: colors.text.muted }}>—</span>;
+  }
+  
   const isPositive = value >= 0;
   const fontSize = size === 'large' ? '1.25rem' : size === 'small' ? '0.75rem' : '0.875rem';
   
@@ -169,6 +165,143 @@ const ChangeIndicator = ({ value, size = 'normal' }) => {
     }}>
       {isPositive ? '▲' : '▼'} {Math.abs(value).toFixed(2)}%
     </span>
+  );
+};
+
+const LoadingSpinner = () => (
+  <div style={{
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: '40px'
+  }}>
+    <div style={{
+      width: '40px',
+      height: '40px',
+      border: `3px solid ${colors.border}`,
+      borderTopColor: colors.accent.gold,
+      borderRadius: '50%',
+      animation: 'spin 1s linear infinite'
+    }} />
+    <style>{`
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    `}</style>
+  </div>
+);
+
+const DataSourceBadge = ({ isLive }) => (
+  <div style={{
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '4px 10px',
+    background: isLive ? `${colors.accent.green}20` : `${colors.accent.gold}20`,
+    borderRadius: '4px',
+    fontSize: '0.7rem',
+    fontWeight: 600
+  }}>
+    <div style={{
+      width: '6px',
+      height: '6px',
+      borderRadius: '50%',
+      background: isLive ? colors.accent.green : colors.accent.gold
+    }} />
+    <span style={{ color: isLive ? colors.accent.green : colors.accent.gold }}>
+      {isLive ? 'LIVE DATA' : 'MOCK DATA'}
+    </span>
+  </div>
+);
+
+const IndexBadge = ({ code, small = false }) => (
+  <span style={{
+    background: colors.chart[code] + '20',
+    color: colors.chart[code],
+    padding: small ? '2px 6px' : '4px 10px',
+    borderRadius: '4px',
+    fontSize: small ? '0.65rem' : '0.7rem',
+    fontWeight: 600,
+    letterSpacing: '0.02em'
+  }}>
+    {code}
+  </span>
+);
+
+// ============================================================================
+// CARD IMAGE COMPONENT
+// ============================================================================
+
+const getCardImageUrl = (tcgplayerId, size = 400) => {
+  if (!tcgplayerId) return null;
+  return `https://tcgplayer-cdn.tcgplayer.com/product/${tcgplayerId}_in_${size}x${size}.jpg`;
+};
+
+const CardImage = ({ tcgplayerId, name, size = 'small' }) => {
+  const [imageError, setImageError] = React.useState(false);
+  const [imageLoaded, setImageLoaded] = React.useState(false);
+  
+  const sizeStyles = {
+    small: { width: '36px', height: '50px' },
+    medium: { width: '60px', height: '84px' },
+    large: { width: '100%', height: '280px' }
+  };
+  
+  const imageUrl = getCardImageUrl(tcgplayerId, size === 'large' ? 800 : 400);
+  
+  if (!tcgplayerId || imageError) {
+    return (
+      <div style={{
+        ...sizeStyles[size],
+        background: `linear-gradient(135deg, ${colors.accent.gold}30, ${colors.accent.purple}30)`,
+        borderRadius: size === 'large' ? '12px' : '4px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: size === 'large' ? '2rem' : '0.8rem',
+        color: colors.text.muted,
+        border: `1px solid ${colors.border}`
+      }}>
+        🃏
+      </div>
+    );
+  }
+  
+  return (
+    <div style={{
+      ...sizeStyles[size],
+      position: 'relative',
+      borderRadius: size === 'large' ? '12px' : '4px',
+      overflow: 'hidden',
+      background: `linear-gradient(135deg, ${colors.accent.gold}20, ${colors.accent.purple}20)`
+    }}>
+      {!imageLoaded && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '0.6rem',
+          color: colors.text.muted
+        }}>
+          ...
+        </div>
+      )}
+      <img
+        src={imageUrl}
+        alt={name || 'Pokemon Card'}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          opacity: imageLoaded ? 1 : 0,
+          transition: 'opacity 0.3s'
+        }}
+        onLoad={() => setImageLoaded(true)}
+        onError={() => setImageError(true)}
+      />
+    </div>
   );
 };
 
@@ -229,20 +362,6 @@ const ExternalLinkButton = ({ href, children, variant = 'default' }) => {
   );
 };
 
-const IndexBadge = ({ code, small = false }) => (
-  <span style={{
-    background: colors.chart[code] + '20',
-    color: colors.chart[code],
-    padding: small ? '2px 6px' : '4px 10px',
-    borderRadius: '4px',
-    fontSize: small ? '0.65rem' : '0.7rem',
-    fontWeight: 600,
-    letterSpacing: '0.02em'
-  }}>
-    {code}
-  </span>
-);
-
 // ============================================================================
 // NAVIGATION
 // ============================================================================
@@ -279,13 +398,7 @@ const NavLink = ({ active, onClick, children }) => (
   </button>
 );
 
-const Header = ({ currentPage, onNavigate }) => {
-  const lastUpdate = new Date().toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
-  
+const Header = ({ currentPage, onNavigate, isLive, lastUpdate }) => {
   return (
     <header style={{
       borderBottom: `1px solid ${colors.border}`,
@@ -354,23 +467,8 @@ const Header = ({ currentPage, onNavigate }) => {
             background: colors.border
           }} />
           
-          <div style={{ textAlign: 'right' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              marginBottom: '4px'
-            }}>
-              <div style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                background: colors.accent.blue
-              }} />
-              <span style={{ color: colors.text.secondary, fontSize: '0.8rem' }}>
-                Daily Updates
-              </span>
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+            <DataSourceBadge isLive={isLive} />
             <div style={{ color: colors.text.muted, fontSize: '0.75rem' }}>
               {lastUpdate}
             </div>
@@ -386,6 +484,10 @@ const Header = ({ currentPage, onNavigate }) => {
 // ============================================================================
 
 const SparkLine = ({ data, color, height = 40 }) => {
+  if (!data || data.length === 0) {
+    return <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.text.muted }}>No data</div>;
+  }
+  
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data.slice(-30)}>
@@ -407,12 +509,13 @@ const SparkLine = ({ data, color, height = 40 }) => {
   );
 };
 
-const IndexCard = ({ code, name, data, isSelected, onClick }) => {
-  const latestValue = data[data.length - 1]?.value || 100;
-  const previousValue = data[data.length - 2]?.value || 100;
-  const change = ((latestValue - previousValue) / previousValue) * 100;
+const IndexCard = ({ code, name, data, latestData, isSelected, onClick }) => {
+  const latestValue = latestData?.index_value || data[data.length - 1]?.value || 100;
+  const change1d = latestData?.change_1d;
+  const change1m = latestData?.change_1m;
+  
   const startValue = data[0]?.value || 100;
-  const totalChange = ((latestValue - startValue) / startValue) * 100;
+  const totalChange = change1m !== undefined ? change1m : ((latestValue - startValue) / startValue) * 100;
   
   return (
     <div
@@ -479,10 +582,10 @@ const IndexCard = ({ code, name, data, isSelected, onClick }) => {
       }}>
         <div>
           <div style={{ fontSize: '0.7rem', color: colors.text.muted, marginBottom: '2px' }}>24H</div>
-          <ChangeIndicator value={change} size="small" />
+          <ChangeIndicator value={change1d} size="small" />
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '0.7rem', color: colors.text.muted, marginBottom: '2px' }}>SINCE INCEPTION</div>
+          <div style={{ fontSize: '0.7rem', color: colors.text.muted, marginBottom: '2px' }}>30D</div>
           <ChangeIndicator value={totalChange} size="small" />
         </div>
       </div>
@@ -492,6 +595,24 @@ const IndexCard = ({ code, name, data, isSelected, onClick }) => {
 
 const MainChart = ({ data, indexCode }) => {
   const color = colors.chart[indexCode];
+  
+  if (!data || data.length === 0) {
+    return (
+      <div style={{
+        background: colors.bg.card,
+        border: `1px solid ${colors.border}`,
+        borderRadius: '12px',
+        padding: '24px',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '400px',
+        color: colors.text.muted
+      }}>
+        No chart data available
+      </div>
+    );
+  }
   
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.[0]) return null;
@@ -540,25 +661,6 @@ const MainChart = ({ data, indexCode }) => {
         }}>
           Index Performance
         </h3>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {['1W', '1M', '3M', 'ALL'].map((period) => (
-            <button
-              key={period}
-              style={{
-                background: period === '3M' ? colors.bg.tertiary : 'transparent',
-                border: `1px solid ${period === '3M' ? colors.border : 'transparent'}`,
-                color: period === '3M' ? colors.text.primary : colors.text.muted,
-                padding: '6px 12px',
-                borderRadius: '6px',
-                fontSize: '0.75rem',
-                cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-            >
-              {period}
-            </button>
-          ))}
-        </div>
       </div>
       
       <ResponsiveContainer width="100%" height={350}>
@@ -621,19 +723,7 @@ const ConstituentRow = ({ card, rank, onClick, isSelected }) => {
       </td>
       <td style={{ padding: '14px 16px', borderBottom: `1px solid ${colors.border}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{
-            width: '36px',
-            height: '50px',
-            background: `linear-gradient(135deg, ${colors.accent.gold}30, ${colors.accent.purple}30)`,
-            borderRadius: '4px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '0.6rem',
-            color: colors.text.muted
-          }}>
-            IMG
-          </div>
+          <CardImage tcgplayerId={card.tcgplayerId} name={card.name} size="small" />
           <div>
             <div style={{ color: colors.text.primary, fontWeight: 600, marginBottom: '2px' }}>
               {card.name}
@@ -677,7 +767,7 @@ const ConstituentRow = ({ card, rank, onClick, isSelected }) => {
         textAlign: 'right',
         color: colors.text.secondary
       }}>
-        {card.weight}%
+        {card.weight ? `${(card.weight * 100).toFixed(2)}%` : '—'}
       </td>
       <td style={{
         padding: '14px 16px',
@@ -686,14 +776,27 @@ const ConstituentRow = ({ card, rank, onClick, isSelected }) => {
         textAlign: 'right',
         color: colors.text.muted
       }}>
-        {card.sales.toLocaleString()}
+        {card.sales?.toLocaleString() || '—'}
       </td>
     </tr>
   );
 };
 
-const ConstituentsTable = ({ constituents, onCardClick, selectedCard, limit = 10 }) => {
-  const displayedCards = constituents.slice(0, limit);
+const ConstituentsTable = ({ constituents, onCardClick, selectedCard, limit = 10, loading }) => {
+  if (loading) {
+    return (
+      <div style={{
+        background: colors.bg.card,
+        border: `1px solid ${colors.border}`,
+        borderRadius: '12px',
+        overflow: 'hidden'
+      }}>
+        <LoadingSpinner />
+      </div>
+    );
+  }
+  
+  const displayedCards = constituents?.slice(0, limit) || [];
   
   return (
     <div style={{
@@ -721,7 +824,7 @@ const ConstituentsTable = ({ constituents, onCardClick, selectedCard, limit = 10
           color: colors.text.muted,
           fontSize: '0.8rem'
         }}>
-          Showing {displayedCards.length} of {constituents.length} cards
+          Showing {displayedCards.length} of {constituents?.length || 0} cards
         </span>
       </div>
       
@@ -753,7 +856,7 @@ const ConstituentsTable = ({ constituents, onCardClick, selectedCard, limit = 10
               <ConstituentRow
                 key={card.id}
                 card={card}
-                rank={i + 1}
+                rank={card.rank || i + 1}
                 onClick={onCardClick}
                 isSelected={selectedCard?.id === card.id}
               />
@@ -765,11 +868,13 @@ const ConstituentsTable = ({ constituents, onCardClick, selectedCard, limit = 10
   );
 };
 
-const CardDetailPanel = ({ card, onClose }) => {
-  const priceHistory = useMemo(() => generateCardPriceHistory(card.price), [card.id, card.price]);
-  
-  const tcgplayerUrl = `https://www.tcgplayer.com/product/${card.tcgplayerId}`;
-  const pokepricesUrl = `https://pokemonprices.com/card/${card.id}`;
+const CardDetailPanel = ({ card, onClose, priceHistory, loadingHistory }) => {
+  const tcgplayerUrl = card.tcgplayerId 
+    ? `https://www.tcgplayer.com/product/${card.tcgplayerId}`
+    : `https://www.tcgplayer.com/search/pokemon/product?q=${encodeURIComponent(card.name)}`;
+  const pokepricesUrl = card.pptId 
+    ? `https://pokemonprices.com/card/${card.pptId}`
+    : `https://pokemonprices.com/search?q=${encodeURIComponent(card.name)}`;
   
   return (
     <div style={{
@@ -827,7 +932,6 @@ const CardDetailPanel = ({ card, onClose }) => {
         </button>
       </div>
       
-      {/* External Links */}
       <div style={{
         display: 'flex',
         gap: '12px',
@@ -841,18 +945,8 @@ const CardDetailPanel = ({ card, onClose }) => {
         </ExternalLinkButton>
       </div>
       
-      <div style={{
-        width: '100%',
-        height: '250px',
-        background: `linear-gradient(135deg, ${colors.accent.gold}20, ${colors.accent.purple}20)`,
-        borderRadius: '12px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: '24px',
-        border: `1px solid ${colors.border}`
-      }}>
-        <span style={{ color: colors.text.muted }}>Card Image Placeholder</span>
+      <div style={{ marginBottom: '24px' }}>
+        <CardImage tcgplayerId={card.tcgplayerId} name={card.name} size="large" />
       </div>
       
       <div style={{
@@ -902,7 +996,7 @@ const CardDetailPanel = ({ card, onClose }) => {
             fontWeight: 600,
             fontFamily: "'JetBrains Mono', monospace"
           }}>
-            {card.weight}%
+            {card.weight ? `${(card.weight * 100).toFixed(2)}%` : '—'}
           </div>
         </div>
         <div style={{
@@ -911,7 +1005,7 @@ const CardDetailPanel = ({ card, onClose }) => {
           borderRadius: '8px'
         }}>
           <div style={{ color: colors.text.muted, fontSize: '0.75rem', marginBottom: '4px' }}>
-            MONTHLY SALES
+            LIQUIDITY SCORE
           </div>
           <div style={{
             color: colors.accent.blue,
@@ -919,7 +1013,7 @@ const CardDetailPanel = ({ card, onClose }) => {
             fontWeight: 600,
             fontFamily: "'JetBrains Mono', monospace"
           }}>
-            {card.sales.toLocaleString()}
+            {card.liquidityScore?.toFixed(2) || card.sales?.toLocaleString() || '—'}
           </div>
         </div>
       </div>
@@ -938,46 +1032,54 @@ const CardDetailPanel = ({ card, onClose }) => {
         }}>
           Price History (6 Months)
         </h4>
-        <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={priceHistory}>
-            <defs>
-              <linearGradient id="cardPriceGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={colors.accent.gold} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={colors.accent.gold} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke={colors.border} vertical={false} />
-            <XAxis
-              dataKey="displayDate"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: colors.text.muted, fontSize: 10 }}
-              interval={29}
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: colors.text.muted, fontSize: 10 }}
-              tickFormatter={(v) => `$${v}`}
-            />
-            <Tooltip
-              contentStyle={{
-                background: colors.bg.secondary,
-                border: `1px solid ${colors.border}`,
-                borderRadius: '8px'
-              }}
-              labelStyle={{ color: colors.text.muted }}
-              formatter={(value) => [formatCurrency(value), 'Price']}
-            />
-            <Area
-              type="monotone"
-              dataKey="price"
-              stroke={colors.accent.gold}
-              strokeWidth={2}
-              fill="url(#cardPriceGradient)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        {loadingHistory ? (
+          <LoadingSpinner />
+        ) : priceHistory && priceHistory.length > 0 ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={priceHistory}>
+              <defs>
+                <linearGradient id="cardPriceGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={colors.accent.gold} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={colors.accent.gold} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={colors.border} vertical={false} />
+              <XAxis
+                dataKey="displayDate"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: colors.text.muted, fontSize: 10 }}
+                interval={29}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: colors.text.muted, fontSize: 10 }}
+                tickFormatter={(v) => `$${v}`}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: colors.bg.secondary,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: '8px'
+                }}
+                labelStyle={{ color: colors.text.muted }}
+                formatter={(value) => [formatCurrency(value), 'Price']}
+              />
+              <Area
+                type="monotone"
+                dataKey="price"
+                stroke={colors.accent.gold}
+                strokeWidth={2}
+                fill="url(#cardPriceGradient)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ textAlign: 'center', color: colors.text.muted, padding: '40px' }}>
+            No price history available
+          </div>
+        )}
       </div>
       
       <div style={{
@@ -993,6 +1095,9 @@ const CardDetailPanel = ({ card, onClose }) => {
           {card.inRare100 && <IndexBadge code="RARE_100" />}
           {card.inRare500 && <IndexBadge code="RARE_500" />}
           {card.inRareAll && <IndexBadge code="RARE_ALL" />}
+          {!card.inRare100 && !card.inRare500 && !card.inRareAll && (
+            <span style={{ color: colors.text.muted, fontSize: '0.8rem' }}>None currently</span>
+          )}
         </div>
       </div>
     </div>
@@ -1003,7 +1108,14 @@ const CardDetailPanel = ({ card, onClose }) => {
 // PAGE: DASHBOARD
 // ============================================================================
 
-const DashboardPage = ({ onCardClick, selectedCard }) => {
+const DashboardPage = ({ 
+  indexData, 
+  latestValues, 
+  constituents, 
+  onCardClick, 
+  selectedCard,
+  loading 
+}) => {
   const [selectedIndex, setSelectedIndex] = useState('RARE_100');
   
   const indexConfigs = [
@@ -1014,7 +1126,6 @@ const DashboardPage = ({ onCardClick, selectedCard }) => {
   
   return (
     <>
-      {/* Index Cards */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(3, 1fr)',
@@ -1026,27 +1137,27 @@ const DashboardPage = ({ onCardClick, selectedCard }) => {
             key={code}
             code={code}
             name={name}
-            data={MOCK_INDEX_DATA[code]}
+            data={indexData[code] || []}
+            latestData={latestValues?.[code]}
             isSelected={selectedIndex === code}
             onClick={() => setSelectedIndex(code)}
           />
         ))}
       </div>
       
-      {/* Main Chart */}
       <div style={{ marginBottom: '32px' }}>
         <MainChart
-          data={MOCK_INDEX_DATA[selectedIndex]}
+          data={indexData[selectedIndex] || []}
           indexCode={selectedIndex}
         />
       </div>
       
-      {/* Constituents Table */}
       <ConstituentsTable
-        constituents={MOCK_CONSTITUENTS[selectedIndex]}
+        constituents={constituents[selectedIndex]}
         onCardClick={onCardClick}
         selectedCard={selectedCard}
         limit={10}
+        loading={loading}
       />
     </>
   );
@@ -1056,7 +1167,7 @@ const DashboardPage = ({ onCardClick, selectedCard }) => {
 // PAGE: ALL CARDS
 // ============================================================================
 
-const AllCardsPage = ({ onCardClick, selectedCard }) => {
+const AllCardsPage = ({ allCards, onCardClick, selectedCard, loading }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterIndex, setFilterIndex] = useState('all');
   const [filterRarity, setFilterRarity] = useState('all');
@@ -1064,42 +1175,43 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
   const [sortOrder, setSortOrder] = useState('desc');
   
   const filteredCards = useMemo(() => {
-    let cards = [...ALL_CARDS];
+    if (!allCards) return [];
     
-    // Search filter
+    let cards = [...allCards];
+    
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       cards = cards.filter(c => 
-        c.name.toLowerCase().includes(term) ||
-        c.set.toLowerCase().includes(term)
+        c.name?.toLowerCase().includes(term) ||
+        c.set?.toLowerCase().includes(term)
       );
     }
     
-    // Index filter
     if (filterIndex === 'RARE_100') cards = cards.filter(c => c.inRare100);
     else if (filterIndex === 'RARE_500') cards = cards.filter(c => c.inRare500);
     
-    // Rarity filter
     if (filterRarity !== 'all') {
       cards = cards.filter(c => c.rarity === filterRarity);
     }
     
-    // Sort
     cards.sort((a, b) => {
-      const aVal = a[sortBy];
-      const bVal = b[sortBy];
+      const aVal = a[sortBy] || 0;
+      const bVal = b[sortBy] || 0;
       const modifier = sortOrder === 'desc' ? -1 : 1;
       return (aVal - bVal) * modifier;
     });
     
     return cards;
-  }, [searchTerm, filterIndex, filterRarity, sortBy, sortOrder]);
+  }, [allCards, searchTerm, filterIndex, filterRarity, sortBy, sortOrder]);
   
   const rarities = ['Special Art Rare', 'Ultra Rare', 'Illustration Rare', 'Holo Rare', 'Rare'];
   
+  if (loading) {
+    return <LoadingSpinner />;
+  }
+  
   return (
     <div>
-      {/* Disclaimer */}
       <div style={{
         background: `${colors.accent.blue}10`,
         border: `1px solid ${colors.accent.blue}30`,
@@ -1118,23 +1230,12 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
               About Eligible Cards
             </h4>
             <p style={{ margin: 0, color: colors.text.secondary, fontSize: '0.875rem', lineHeight: 1.6 }}>
-              This list shows only cards that meet our index eligibility criteria. Cards must have:
-            </p>
-            <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px', color: colors.text.secondary, fontSize: '0.875rem', lineHeight: 1.8 }}>
-              <li><strong>Minimum maturity:</strong> ≥60 days since set release + 2 consecutive eligible months</li>
-              <li><strong>Minimum liquidity:</strong> ≥10-20 estimated sales/month depending on the index</li>
-              <li><strong>Rarity threshold:</strong> Rare or higher (excludes Commons and Uncommons)</li>
-              <li><strong>Condition:</strong> Near Mint raw cards only (no graded cards)</li>
-            </ul>
-            <p style={{ margin: '12px 0 0 0', color: colors.text.muted, fontSize: '0.8rem' }}>
-              If you don't see a specific card, it likely doesn't meet one or more of these criteria. 
-              See our <a href="#" style={{ color: colors.accent.gold }}>Methodology</a> for full details.
+              This list shows cards meeting index eligibility criteria: minimum maturity (≥60 days), minimum liquidity (≥10-20 sales/month), rarity ≥ Rare, and Near Mint condition only.
             </p>
           </div>
         </div>
       </div>
       
-      {/* Filters */}
       <div style={{
         background: colors.bg.card,
         border: `1px solid ${colors.border}`,
@@ -1148,7 +1249,6 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
           flexWrap: 'wrap',
           alignItems: 'center'
         }}>
-          {/* Search */}
           <div style={{ flex: '1 1 250px' }}>
             <input
               type="text"
@@ -1168,7 +1268,6 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
             />
           </div>
           
-          {/* Index Filter */}
           <select
             value={filterIndex}
             onChange={(e) => setFilterIndex(e.target.value)}
@@ -1187,7 +1286,6 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
             <option value="RARE_500">RARE_500 Only</option>
           </select>
           
-          {/* Rarity Filter */}
           <select
             value={filterRarity}
             onChange={(e) => setFilterRarity(e.target.value)}
@@ -1207,7 +1305,6 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
             ))}
           </select>
           
-          {/* Sort */}
           <select
             value={`${sortBy}-${sortOrder}`}
             onChange={(e) => {
@@ -1229,7 +1326,6 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
             <option value="price-asc">Price: Low to High</option>
             <option value="change-desc">Change: High to Low</option>
             <option value="change-asc">Change: Low to High</option>
-            <option value="sales-desc">Sales: High to Low</option>
           </select>
         </div>
         
@@ -1244,7 +1340,6 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
         </div>
       </div>
       
-      {/* Cards Grid */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
@@ -1272,20 +1367,7 @@ const AllCardsPage = ({ onCardClick, selectedCard }) => {
             }}
           >
             <div style={{ display: 'flex', gap: '14px' }}>
-              <div style={{
-                width: '60px',
-                height: '84px',
-                background: `linear-gradient(135deg, ${colors.accent.gold}30, ${colors.accent.purple}30)`,
-                borderRadius: '6px',
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '0.6rem',
-                color: colors.text.muted
-              }}>
-                IMG
-              </div>
+              <CardImage tcgplayerId={card.tcgplayerId} name={card.name} size="medium" />
               
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
@@ -1386,10 +1468,7 @@ const MethodologyPage = () => {
   );
   
   return (
-    <div style={{
-      maxWidth: '800px',
-      margin: '0 auto'
-    }}>
+    <div style={{ maxWidth: '800px', margin: '0 auto' }}>
       <div style={{ marginBottom: '40px' }}>
         <h1 style={{
           color: colors.text.primary,
@@ -1410,11 +1489,6 @@ const MethodologyPage = () => {
           the Pokémon TCG collectibles market. They focus exclusively on raw (non-graded) cards and 
           provide reliable benchmarks for collectors, investors, and market analysts.
         </p>
-        <p style={{ marginTop: '12px' }}>
-          Our methodology prioritizes <strong>transparency</strong>, <strong>liquidity</strong>, and 
-          <strong> manipulation resistance</strong> to ensure the indexes accurately reflect real 
-          market dynamics.
-        </p>
       </Section>
       
       <Section title="Index Family">
@@ -1424,81 +1498,47 @@ const MethodologyPage = () => {
           gap: '16px',
           marginBottom: '20px'
         }}>
-          <div style={{
-            background: colors.bg.card,
-            border: `1px solid ${colors.chart.RARE_100}40`,
-            borderRadius: '12px',
-            padding: '20px'
-          }}>
-            <IndexBadge code="RARE_100" />
-            <h4 style={{ color: colors.text.primary, margin: '12px 0 8px' }}>Rare Cards Top 100</h4>
-            <p style={{ fontSize: '0.85rem', margin: 0 }}>
-              Top 100 cards by composite score. Represents the most liquid and valuable segment of the market.
-            </p>
-          </div>
-          
-          <div style={{
-            background: colors.bg.card,
-            border: `1px solid ${colors.chart.RARE_500}40`,
-            borderRadius: '12px',
-            padding: '20px'
-          }}>
-            <IndexBadge code="RARE_500" />
-            <h4 style={{ color: colors.text.primary, margin: '12px 0 8px' }}>Rare Cards Top 500</h4>
-            <p style={{ fontSize: '0.85rem', margin: 0 }}>
-              Top 500 cards by composite score. Broader market coverage while maintaining quality standards.
-            </p>
-          </div>
-          
-          <div style={{
-            background: colors.bg.card,
-            border: `1px solid ${colors.chart.RARE_ALL}40`,
-            borderRadius: '12px',
-            padding: '20px'
-          }}>
-            <IndexBadge code="RARE_ALL" />
-            <h4 style={{ color: colors.text.primary, margin: '12px 0 8px' }}>Rare Cards All Liquid</h4>
-            <p style={{ fontSize: '0.85rem', margin: 0 }}>
-              All cards meeting strict liquidity requirements. Comprehensive view of the tradeable market.
-            </p>
-          </div>
+          {[
+            { code: 'RARE_100', name: 'Rare Cards Top 100', desc: 'Top 100 cards by composite score.' },
+            { code: 'RARE_500', name: 'Rare Cards Top 500', desc: 'Top 500 cards by composite score.' },
+            { code: 'RARE_ALL', name: 'Rare Cards All Liquid', desc: 'All cards meeting strict liquidity requirements.' }
+          ].map(({ code, name, desc }) => (
+            <div key={code} style={{
+              background: colors.bg.card,
+              border: `1px solid ${colors.chart[code]}40`,
+              borderRadius: '12px',
+              padding: '20px'
+            }}>
+              <IndexBadge code={code} />
+              <h4 style={{ color: colors.text.primary, margin: '12px 0 8px' }}>{name}</h4>
+              <p style={{ fontSize: '0.85rem', margin: 0 }}>{desc}</p>
+            </div>
+          ))}
         </div>
       </Section>
       
       <Section title="Eligibility Criteria">
-        <InfoBox 
-          title="Universe" 
-          items={[
-            'Raw Pokémon cards only (no graded items)',
-            'Rarity ≥ Rare (excludes Commons and Uncommons)',
-            'Near Mint condition'
-          ]}
-        />
-        
-        <InfoBox 
-          title="Maturity Requirements" 
-          items={[
-            '≥60 days since set release date',
-            '2 consecutive months of eligibility confirmation',
-            'Anti-novelty filter to prevent hype distortion'
-          ]}
-        />
-        
-        <InfoBox 
-          title="Liquidity Thresholds" 
-          items={[
-            'RARE_100: ≥10 sales/month (5 for existing constituents)',
-            'RARE_500: ≥20 sales/month (10 for existing constituents)',
-            'RARE_ALL: ≥20 sales/month (strict, no tolerance)'
-          ]}
-        />
+        <InfoBox title="Universe" items={[
+          'Raw Pokémon cards only (no graded items)',
+          'Rarity ≥ Rare (excludes Commons and Uncommons)',
+          'Near Mint condition'
+        ]} />
+        <InfoBox title="Maturity Requirements" items={[
+          '≥60 days since set release date',
+          '2 consecutive months of eligibility confirmation',
+          'Anti-novelty filter to prevent hype distortion'
+        ]} />
+        <InfoBox title="Liquidity Thresholds" items={[
+          'RARE_100: ≥10 sales/month (5 for existing constituents)',
+          'RARE_500: ≥20 sales/month (10 for existing constituents)',
+          'RARE_ALL: ≥20 sales/month (strict, no tolerance)'
+        ]} />
       </Section>
       
       <Section title="Scoring & Selection">
         <p style={{ marginBottom: '16px' }}>
           Cards are ranked using a composite score that balances price and market activity:
         </p>
-        
         <div style={{
           background: colors.bg.card,
           border: `1px solid ${colors.border}`,
@@ -1512,162 +1552,47 @@ const MethodologyPage = () => {
           <span style={{ color: colors.text.muted }}> = </span>
           <span style={{ color: colors.text.primary }}>Composite Price</span>
           <span style={{ color: colors.text.muted }}> × </span>
-          <span style={{ color: colors.text.primary }}>Monthly Sales Volume</span>
+          <span style={{ color: colors.text.primary }}>Liquidity Score</span>
         </div>
-        
-        <p>
-          For Top 100 and Top 500 indexes, cards are sorted by score and the top N are selected. 
-          A continuity tolerance (reduced threshold) is applied to existing constituents to 
-          prevent excessive turnover.
-        </p>
       </Section>
       
       <Section title="Liquidity Estimation">
         <p style={{ marginBottom: '16px' }}>
-          Since exact transaction data is not publicly available, we use a multi-signal approach 
-          to estimate liquidity:
+          Multi-signal approach to estimate liquidity:
         </p>
-        
-        <div style={{
-          display: 'grid',
-          gap: '12px',
-          marginBottom: '20px'
-        }}>
-          <div style={{
+        {[
+          { pct: '50%', color: colors.accent.blue, name: 'Market Activity (Churn)', desc: 'Listing disappearances interpreted as implicit sales' },
+          { pct: '30%', color: colors.accent.purple, name: 'Market Presence (Listings)', desc: 'Number and continuity of active listings' },
+          { pct: '20%', color: colors.accent.gold, name: 'Price Signal Quality', desc: 'Frequency of price updates and relative stability' }
+        ].map(({ pct, color, name, desc }) => (
+          <div key={name} style={{
             display: 'flex',
             alignItems: 'center',
             gap: '16px',
             background: colors.bg.tertiary,
             padding: '14px 18px',
-            borderRadius: '8px'
+            borderRadius: '8px',
+            marginBottom: '12px'
           }}>
             <div style={{
               width: '40px',
               height: '40px',
-              background: colors.accent.blue + '20',
+              background: color + '20',
               borderRadius: '8px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: colors.accent.blue,
+              color: color,
               fontWeight: 700
             }}>
-              50%
+              {pct}
             </div>
             <div>
-              <div style={{ color: colors.text.primary, fontWeight: 600, marginBottom: '2px' }}>
-                Market Activity (Churn)
-              </div>
-              <div style={{ fontSize: '0.8rem' }}>
-                Listing disappearances interpreted as implicit sales
-              </div>
+              <div style={{ color: colors.text.primary, fontWeight: 600, marginBottom: '2px' }}>{name}</div>
+              <div style={{ fontSize: '0.8rem' }}>{desc}</div>
             </div>
           </div>
-          
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-            background: colors.bg.tertiary,
-            padding: '14px 18px',
-            borderRadius: '8px'
-          }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              background: colors.accent.purple + '20',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: colors.accent.purple,
-              fontWeight: 700
-            }}>
-              30%
-            </div>
-            <div>
-              <div style={{ color: colors.text.primary, fontWeight: 600, marginBottom: '2px' }}>
-                Market Presence (Listings)
-              </div>
-              <div style={{ fontSize: '0.8rem' }}>
-                Number and continuity of active listings
-              </div>
-            </div>
-          </div>
-          
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '16px',
-            background: colors.bg.tertiary,
-            padding: '14px 18px',
-            borderRadius: '8px'
-          }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              background: colors.accent.gold + '20',
-              borderRadius: '8px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: colors.accent.gold,
-              fontWeight: 700
-            }}>
-              20%
-            </div>
-            <div>
-              <div style={{ color: colors.text.primary, fontWeight: 600, marginBottom: '2px' }}>
-                Price Signal Quality
-              </div>
-              <div style={{ fontSize: '0.8rem' }}>
-                Frequency of price updates and relative stability
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <p style={{ fontSize: '0.85rem', color: colors.text.muted }}>
-          This multi-signal approach maximizes robustness against manipulation of any single indicator.
-        </p>
-      </Section>
-      
-      <Section title="Index Calculation">
-        <InfoBox 
-          title="Frequency" 
-          items={[
-            'Index values: Updated daily',
-            'Rebalancing: Monthly',
-            'Base value: 100 at inception (December 1, 2025)'
-          ]}
-        />
-        
-        <p>
-          Index values are calculated using a chain-linked Laspeyres methodology. This ensures 
-          continuity when the composition changes during monthly rebalancing.
-        </p>
-      </Section>
-      
-      <Section title="Data Sources">
-        <p style={{ marginBottom: '16px' }}>
-          Price data is sourced from major marketplaces to ensure comprehensive market coverage:
-        </p>
-        
-        <div style={{
-          background: colors.bg.card,
-          border: `1px solid ${colors.border}`,
-          borderRadius: '8px',
-          padding: '20px'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <span style={{ color: colors.text.primary, fontWeight: 600 }}>TCGPlayer (US Market)</span>
-            <span style={{ color: colors.accent.blue, fontFamily: "'JetBrains Mono', monospace" }}>USD</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: colors.text.primary, fontWeight: 600 }}>PokemonPriceTracker API</span>
-            <span style={{ color: colors.accent.gold, fontFamily: "'JetBrains Mono', monospace" }}>USD</span>
-          </div>
-        </div>
+        ))}
       </Section>
       
       <Section title="Disclaimers">
@@ -1678,17 +1603,13 @@ const MethodologyPage = () => {
           padding: '20px'
         }}>
           <p style={{ margin: '0 0 12px 0' }}>
-            <strong>For Informational Purposes Only:</strong> The Pokémon Market Indexes are provided 
-            for informational and analytical purposes only. They do not constitute investment advice 
-            or a recommendation to buy or sell collectibles.
+            <strong>For Informational Purposes Only:</strong> The Pokémon Market Indexes do not constitute investment advice.
           </p>
           <p style={{ margin: '0 0 12px 0' }}>
-            <strong>No Guarantees:</strong> Past performance is not indicative of future results. 
-            Market prices may be influenced by external, non-quantifiable factors.
+            <strong>No Guarantees:</strong> Past performance is not indicative of future results.
           </p>
           <p style={{ margin: 0 }}>
-            <strong>Estimated Liquidity:</strong> Liquidity figures are estimates derived from 
-            observable market signals and do not represent exact transaction volumes.
+            <strong>Estimated Liquidity:</strong> Liquidity figures are estimates, not exact transaction volumes.
           </p>
         </div>
       </Section>
@@ -1699,8 +1620,8 @@ const MethodologyPage = () => {
         borderTop: `1px solid ${colors.border}`,
         marginTop: '40px'
       }}>
-        <p style={{ color: colors.text.muted, fontSize: '0.85rem' }}>
-          Methodology Version 1.0 — Last Updated: December 2025
+        <p style={{ color: colors.text.muted, fontSize: '0.85rem', margin: 0 }}>
+          Methodology Version 1.0 — Last Updated: January 2026
         </p>
       </div>
     </div>
@@ -1714,6 +1635,107 @@ const MethodologyPage = () => {
 export default function PokemonMarketDashboard() {
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [selectedCard, setSelectedCard] = useState(null);
+  const [cardPriceHistory, setCardPriceHistory] = useState(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  
+  const [indexData, setIndexData] = useState(MOCK_INDEX_DATA);
+  const [latestValues, setLatestValues] = useState(null);
+  const [constituents, setConstituents] = useState(MOCK_CONSTITUENTS);
+  const [allCards, setAllCards] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState(new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }));
+  
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      
+      if (!isSupabaseConfigured()) {
+        console.log('Supabase not configured, using mock data');
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        const indexHistory = await getAllIndexHistory();
+        if (indexHistory && Object.values(indexHistory).some(arr => arr.length > 0)) {
+          setIndexData(indexHistory);
+          setIsLive(true);
+        }
+        
+        const latest = await getLatestIndexValues();
+        if (latest) {
+          setLatestValues(latest);
+          
+          const dates = Object.values(latest).map(v => v?.value_date).filter(Boolean);
+          if (dates.length > 0) {
+            const mostRecent = dates.sort().reverse()[0];
+            setLastUpdate(new Date(mostRecent).toLocaleDateString('en-US', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            }));
+          }
+        }
+        
+        const [rare100, rare500, rareAll] = await Promise.all([
+          getConstituents('RARE_100'),
+          getConstituents('RARE_500'),
+          getConstituents('RARE_ALL')
+        ]);
+        
+        if (rare100 || rare500 || rareAll) {
+          setConstituents({
+            RARE_100: rare100 || MOCK_CONSTITUENTS.RARE_100,
+            RARE_500: rare500 || MOCK_CONSTITUENTS.RARE_500,
+            RARE_ALL: rareAll || MOCK_CONSTITUENTS.RARE_ALL
+          });
+        }
+        
+        const cards = await getAllEligibleCards();
+        if (cards) {
+          setAllCards(cards);
+        }
+        
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      }
+      
+      setLoading(false);
+    }
+    
+    fetchData();
+  }, []);
+  
+  useEffect(() => {
+    async function fetchCardHistory() {
+      if (!selectedCard) {
+        setCardPriceHistory(null);
+        return;
+      }
+      
+      setLoadingHistory(true);
+      
+      if (isSupabaseConfigured()) {
+        const history = await getCardPriceHistory(selectedCard.id);
+        if (history && history.length > 0) {
+          setCardPriceHistory(history);
+        } else {
+          setCardPriceHistory(generateCardPriceHistoryMock(selectedCard.price || 50));
+        }
+      } else {
+        setCardPriceHistory(generateCardPriceHistoryMock(selectedCard.price || 50));
+      }
+      
+      setLoadingHistory(false);
+    }
+    
+    fetchCardHistory();
+  }, [selectedCard]);
   
   const handleCardClick = (card) => {
     setSelectedCard(card);
@@ -1724,9 +1746,25 @@ export default function PokemonMarketDashboard() {
       case 'methodology':
         return <MethodologyPage />;
       case 'cards':
-        return <AllCardsPage onCardClick={handleCardClick} selectedCard={selectedCard} />;
+        return (
+          <AllCardsPage 
+            allCards={allCards || MOCK_CONSTITUENTS.RARE_ALL} 
+            onCardClick={handleCardClick} 
+            selectedCard={selectedCard}
+            loading={loading}
+          />
+        );
       default:
-        return <DashboardPage onCardClick={handleCardClick} selectedCard={selectedCard} />;
+        return (
+          <DashboardPage 
+            indexData={indexData}
+            latestValues={latestValues}
+            constituents={constituents}
+            onCardClick={handleCardClick} 
+            selectedCard={selectedCard}
+            loading={loading}
+          />
+        );
     }
   };
   
@@ -1737,18 +1775,20 @@ export default function PokemonMarketDashboard() {
       color: colors.text.primary,
       fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
     }}>
-
-      
       <div style={{
         maxWidth: '1400px',
         margin: '0 auto',
         padding: '0 32px'
       }}>
-        <Header currentPage={currentPage} onNavigate={setCurrentPage} />
+        <Header 
+          currentPage={currentPage} 
+          onNavigate={setCurrentPage}
+          isLive={isLive}
+          lastUpdate={lastUpdate}
+        />
         
         {renderPage()}
         
-        {/* Footer */}
         <footer style={{
           padding: '24px 0',
           borderTop: `1px solid ${colors.border}`,
@@ -1762,7 +1802,6 @@ export default function PokemonMarketDashboard() {
         </footer>
       </div>
       
-      {/* Card Detail Panel */}
       {selectedCard && (
         <>
           <div
@@ -1777,6 +1816,8 @@ export default function PokemonMarketDashboard() {
           <CardDetailPanel
             card={selectedCard}
             onClose={() => setSelectedCard(null)}
+            priceHistory={cardPriceHistory}
+            loadingHistory={loadingHistory}
           />
         </>
       )}

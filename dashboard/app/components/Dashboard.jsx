@@ -893,9 +893,6 @@ const CardDetailPanel = ({ card, onClose, priceHistory, loadingHistory }) => {
   const tcgplayerUrl = card.tcgplayerId 
     ? `https://www.tcgplayer.com/product/${card.tcgplayerId}`
     : `https://www.tcgplayer.com/search/pokemon/product?q=${encodeURIComponent(card.name)}`;
-  const pokepricesUrl = card.pptId 
-    ? `https://pokemonprices.com/card/${card.pptId}`
-    : `https://pokemonprices.com/search?q=${encodeURIComponent(card.name)}`;
   
   return (
     <div style={{
@@ -960,9 +957,6 @@ const CardDetailPanel = ({ card, onClose, priceHistory, loadingHistory }) => {
       }}>
         <ExternalLinkButton href={tcgplayerUrl} variant="tcgplayer">
           View on TCGPlayer
-        </ExternalLinkButton>
-        <ExternalLinkButton href={pokepricesUrl} variant="pokeprices">
-          View on PokePrices
         </ExternalLinkButton>
       </div>
       
@@ -1248,10 +1242,10 @@ const AllCardsPage = ({ allCards, onCardClick, selectedCard, loading }) => {
           </svg>
           <div>
             <h4 style={{ margin: '0 0 8px 0', color: colors.text.primary, fontSize: '1rem' }}>
-              About Eligible Cards
+              Index Constituents
             </h4>
             <p style={{ margin: 0, color: colors.text.secondary, fontSize: '0.875rem', lineHeight: 1.6 }}>
-              This list shows cards meeting index eligibility criteria: minimum maturity (≥60 days), minimum liquidity (≥10-20 sales/month), rarity ≥ Rare, and Near Mint condition only.
+              This list shows all cards currently included in at least one index (RARE_100, RARE_500, or RARE_ALL). Cards are sorted by their index rank.
             </p>
           </div>
         </div>
@@ -1357,7 +1351,7 @@ const AllCardsPage = ({ allCards, onCardClick, selectedCard, loading }) => {
           color: colors.text.muted,
           fontSize: '0.8rem'
         }}>
-          Showing {filteredCards.length} eligible cards
+          Showing {filteredCards.length} cards in indexes
         </div>
       </div>
       

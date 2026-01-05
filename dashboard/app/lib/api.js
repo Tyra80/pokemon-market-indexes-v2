@@ -347,7 +347,7 @@ async function fetchLatestPricesByCardIds(cardIds) {
 // ============================================================================
 
 /**
- * Récupère toutes les cartes éligibles avec leurs prix et index membership
+ * Récupère les cartes présentes dans les index (constituants actuels)
  */
 export async function getAllEligibleCards() {
   if (!isSupabaseConfigured()) return null
@@ -355,69 +355,69 @@ export async function getAllEligibleCards() {
   // First, get all sets for name lookup
   const setsMap = await fetchAllSets()
   
-  // Récupérer les cartes éligibles avec pagination
-  const PAGE_SIZE = 1000
-  let allCards = []
-  let offset = 0
-  
-  while (true) {
-    const { data, error } = await supabase
-      .from('cards')
-      .select('card_id, name, set_id, card_number, rarity, tcgplayer_id, ppt_id')
-      .eq('is_eligible', true)
-      .order('name', { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1)
-    
-    if (error) {
-      console.error('Error fetching eligible cards:', error)
-      break
-    }
-    
-    if (!data || data.length === 0) break
-    
-    // Add set_name from lookup
-    const cardsWithSetName = data.map(card => ({
-      ...card,
-      set_name: setsMap[card.set_id] || null
-    }))
-    allCards = allCards.concat(cardsWithSetName)
-    
-    if (data.length < PAGE_SIZE) break
-    offset += PAGE_SIZE
-  }
-  
-  if (allCards.length === 0) {
-    console.error('No eligible cards found')
-    return null
-  }
-  
-  const cards = allCards
-  
-  // Récupérer les constituants actuels pour savoir dans quels index chaque carte est
+  // Récupérer les constituants actuels pour savoir quelles cartes sont dans les index
   const allConstituents = await fetchAllPaginated(
     'constituents_monthly',
-    'item_id, index_code, month',
+    'item_id, index_code, month, weight, rank',
     {},
     { column: 'month', ascending: false }
   )
   
-  // Trouver le mois le plus récent
-  const latestMonth = allConstituents?.[0]?.month
-  const currentConstituents = allConstituents?.filter(c => c.month === latestMonth) || []
+  if (!allConstituents || allConstituents.length === 0) {
+    console.error('No constituents found')
+    return null
+  }
   
-  // Créer un map des index par carte
+  // Trouver le mois le plus récent
+  const latestMonth = allConstituents[0]?.month
+  const currentConstituents = allConstituents.filter(c => c.month === latestMonth)
+  
+  // Créer un map des index par carte + récupérer les IDs uniques
   const cardIndexes = {}
+  const uniqueCardIds = new Set()
+  
   currentConstituents.forEach(c => {
+    uniqueCardIds.add(c.item_id)
+    
     if (!cardIndexes[c.item_id]) {
-      cardIndexes[c.item_id] = { inRare100: false, inRare500: false, inRareAll: false }
+      cardIndexes[c.item_id] = { 
+        inRare100: false, 
+        inRare500: false, 
+        inRareAll: false,
+        weight: 0,
+        rank: 999
+      }
     }
-    if (c.index_code === 'RARE_100') cardIndexes[c.item_id].inRare100 = true
-    if (c.index_code === 'RARE_500') cardIndexes[c.item_id].inRare500 = true
-    if (c.index_code === 'RARE_ALL') cardIndexes[c.item_id].inRareAll = true
+    if (c.index_code === 'RARE_100') {
+      cardIndexes[c.item_id].inRare100 = true
+      cardIndexes[c.item_id].weight = c.weight || 0
+      cardIndexes[c.item_id].rank = c.rank || 999
+    }
+    if (c.index_code === 'RARE_500') {
+      cardIndexes[c.item_id].inRare500 = true
+      if (!cardIndexes[c.item_id].inRare100) {
+        cardIndexes[c.item_id].weight = c.weight || 0
+        cardIndexes[c.item_id].rank = c.rank || 999
+      }
+    }
+    if (c.index_code === 'RARE_ALL') {
+      cardIndexes[c.item_id].inRareAll = true
+    }
   })
   
+  const cardIds = Array.from(uniqueCardIds)
+  
+  console.log(`Found ${cardIds.length} unique cards in indexes for month ${latestMonth}`)
+  
+  // Récupérer les infos des cartes
+  const cards = await fetchCardsByIds(cardIds)
+  
+  if (!cards || cards.length === 0) {
+    console.error('No cards found')
+    return null
+  }
+  
   // Récupérer les derniers prix
-  const cardIds = cards.map(c => c.card_id)
   const prices = await fetchLatestPricesByCardIds(cardIds)
   
   const pricesMap = {}
@@ -432,7 +432,7 @@ export async function getAllEligibleCards() {
   // Merger
   const result = cards.map(card => {
     const price = pricesMap[card.card_id] || {}
-    const indexes = cardIndexes[card.card_id] || { inRare100: false, inRare500: false, inRareAll: false }
+    const indexes = cardIndexes[card.card_id] || { inRare100: false, inRare500: false, inRareAll: false, weight: 0, rank: 999 }
     
     return {
       id: card.card_id,
@@ -445,9 +445,14 @@ export async function getAllEligibleCards() {
       tcgplayerId: card.tcgplayer_id,
       pptId: card.ppt_id,
       change: 0,
+      weight: indexes.weight,
+      rank: indexes.rank,
       ...indexes
     }
   })
+  
+  // Trier par rank (les mieux classés en premier)
+  result.sort((a, b) => a.rank - b.rank)
   
   return result
 }

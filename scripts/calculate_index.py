@@ -300,9 +300,9 @@ def get_previous_index_data(client, index_code: str) -> dict:
     """
     # Last value
     response = client.from_("index_values_daily") \
-        .select("index_value, week_date") \
+        .select("index_value, value_date") \
         .eq("index_code", index_code) \
-        .order("week_date", desc=True) \
+        .order("value_date", desc=True) \
         .limit(1) \
         .execute()
     
@@ -310,7 +310,7 @@ def get_previous_index_data(client, index_code: str) -> dict:
         return None
     
     prev_value = response.data[0]["index_value"]
-    prev_date = response.data[0]["week_date"]
+    prev_date = response.data[0]["value_date"]
     
     # Constituents for current month (or previous if beginning of month)
     current_month = get_current_month()
@@ -497,8 +497,27 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
                      n_constituents: int, market_cap: float, calc_details: dict) -> bool:
     """Save index value to database."""
     # Calculate changes
+    change_1d = None
     change_1w = None
     change_1m = None
+    
+    # 1 day ago
+    try:
+        day_ago = (date.fromisoformat(value_date) - timedelta(days=1)).strftime("%Y-%m-%d")
+        response = client.from_("index_values_daily") \
+            .select("index_value") \
+            .eq("index_code", index_code) \
+            .lte("value_date", day_ago) \
+            .order("value_date", desc=True) \
+            .limit(1) \
+            .execute()
+
+        if response.data:
+            prev_val = response.data[0]["index_value"]
+            if prev_val > 0:
+                change_1d = round((index_value - prev_val) / prev_val * 100, 4)
+    except Exception:
+        pass
     
     # 1 week ago
     try:
@@ -506,8 +525,8 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
         response = client.from_("index_values_daily") \
             .select("index_value") \
             .eq("index_code", index_code) \
-            .lte("week_date", week_ago) \
-            .order("week_date", desc=True) \
+            .lte("value_date", week_ago) \
+            .order("value_date", desc=True) \
             .limit(1) \
             .execute()
 
@@ -524,8 +543,8 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
         response = client.from_("index_values_daily") \
             .select("index_value") \
             .eq("index_code", index_code) \
-            .lte("week_date", month_ago) \
-            .order("week_date", desc=True) \
+            .lte("value_date", month_ago) \
+            .order("value_date", desc=True) \
             .limit(1) \
             .execute()
 
@@ -539,13 +558,14 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
     try:
         client.from_("index_values_daily").upsert({
             "index_code": index_code,
-            "week_date": value_date,
+            "value_date": value_date,
             "index_value": round(index_value, 4),
             "n_constituents": n_constituents,
             "total_market_cap": round(market_cap, 2),
+            "change_1d": change_1d,
             "change_1w": change_1w,
             "change_1m": change_1m,
-        }, on_conflict="index_code,week_date").execute()
+        }, on_conflict="index_code,value_date").execute()
         
         return True
     
@@ -729,15 +749,15 @@ def main():
         
         response = client.from_("index_values_daily") \
             .select("*") \
-            .order("week_date", desc=True) \
+            .order("value_date", desc=True) \
             .order("index_code") \
             .limit(9) \
             .execute()
         
         print("\n   📊 Latest values:")
         for row in response.data:
-            change = f"{row['change_1w']:+.2f}%" if row.get('change_1w') else "N/A"
-            print(f"      {row['index_code']:<10} | {row['week_date']} | {row['index_value']:>8.2f} | {change:>8} | {row['n_constituents']} cards")
+            change = f"{row['change_1d']:+.2f}%" if row.get('change_1d') else "N/A"
+            print(f"      {row['index_code']:<10} | {row['value_date']} | {row['index_value']:>8.2f} | {change:>8} | {row['n_constituents']} cards")
         
         # Log success
         log_run_end(client, run_id, "success",

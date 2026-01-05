@@ -242,13 +242,13 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
     try:
         client.from_("index_values_daily").upsert({
             "index_code": index_code,
-            "week_date": value_date,
+            "value_date": value_date,
             "index_value": round(index_value, 4),
             "n_constituents": n_constituents,
             "total_market_cap": round(market_cap, 2),
             "change_1w": None,
             "change_1m": None,
-        }, on_conflict="index_code,week_date").execute()
+        }, on_conflict="index_code,value_date").execute()
         return True
     except Exception as e:
         print(f"   ❌ Save error: {e}")
@@ -382,12 +382,12 @@ def main():
         
         response = client.from_("index_values_daily") \
             .select("*") \
-            .eq("week_date", INCEPTION_DATE) \
+            .eq("value_date", INCEPTION_DATE) \
             .execute()
         
         print("\n   📊 Initial index values:")
         for row in response.data:
-            print(f"      {row['index_code']:<10} | {row['week_date']} | {row['index_value']:>8.2f} | {row['n_constituents']} cards")
+            print(f"      {row['index_code']:<10} | {row['value_date']} | {row['index_value']:>8.2f} | {row['n_constituents']} cards")
         
         # Log success
         log_run_end(client, run_id, "success", records_processed=len(results), details=results)

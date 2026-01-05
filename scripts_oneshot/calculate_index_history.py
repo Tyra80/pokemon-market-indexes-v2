@@ -50,15 +50,31 @@ def get_first_of_month(d: date) -> str:
 
 
 def get_dates_with_prices(client, start_date: str, end_date: str) -> list:
-    """Get all dates that have price data in the given range."""
-    response = client.from_("card_prices_daily") \
-        .select("price_date") \
-        .gte("price_date", start_date) \
-        .lte("price_date", end_date) \
-        .execute()
+    """Get all dates that have price data in the given range (with pagination)."""
+    all_dates = []
+    offset = 0
+    limit = 1000
     
-    # Get unique dates
-    dates = sorted(set(row["price_date"] for row in response.data))
+    while True:
+        response = client.from_("card_prices_daily") \
+            .select("price_date") \
+            .gte("price_date", start_date) \
+            .lte("price_date", end_date) \
+            .range(offset, offset + limit - 1) \
+            .execute()
+        
+        if not response.data:
+            break
+        
+        all_dates.extend([row["price_date"] for row in response.data])
+        
+        if len(response.data) < limit:
+            break
+        
+        offset += limit
+    
+    # Get unique dates and sort
+    dates = sorted(set(all_dates))
     return dates
 
 
@@ -88,32 +104,48 @@ def get_prices_for_date(client, card_ids: list, price_date: str) -> dict:
 
 
 def get_constituents_for_month(client, index_code: str, month: str) -> list:
-    """Get constituents for a given index and month."""
-    response = client.from_("constituents_monthly") \
-        .select("item_id, weight, composite_price") \
-        .eq("index_code", index_code) \
-        .eq("month", month) \
-        .execute()
+    """Get constituents for a given index and month (with pagination)."""
+    all_constituents = []
+    offset = 0
+    limit = 1000
+    
+    while True:
+        response = client.from_("constituents_monthly") \
+            .select("item_id, weight, composite_price") \
+            .eq("index_code", index_code) \
+            .eq("month", month) \
+            .range(offset, offset + limit - 1) \
+            .execute()
+        
+        if not response.data:
+            break
+        
+        all_constituents.extend(response.data)
+        
+        if len(response.data) < limit:
+            break
+        
+        offset += limit
     
     return [{
         "card_id": row["item_id"],
         "weight": float(row["weight"]) if row["weight"] else 0,
         "price": float(row["composite_price"]) if row["composite_price"] else 0,
-    } for row in response.data]
+    } for row in all_constituents]
 
 
 def get_previous_index_value(client, index_code: str, before_date: str) -> tuple:
     """Get the most recent index value before the given date."""
     response = client.from_("index_values_daily") \
-        .select("index_value, week_date") \
+        .select("index_value, value_date") \
         .eq("index_code", index_code) \
-        .lt("week_date", before_date) \
-        .order("week_date", desc=True) \
+        .lt("value_date", before_date) \
+        .order("value_date", desc=True) \
         .limit(1) \
         .execute()
     
     if response.data:
-        return float(response.data[0]["index_value"]), response.data[0]["week_date"]
+        return float(response.data[0]["index_value"]), response.data[0]["value_date"]
     return None, None
 
 
@@ -180,7 +212,7 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
     try:
         data = {
             "index_code": index_code,
-            "week_date": value_date,
+            "value_date": value_date,
             "index_value": round(index_value, 4),
             "n_constituents": n_constituents,
         }
@@ -188,7 +220,7 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
             data["total_market_cap"] = round(market_cap, 2)
         
         client.from_("index_values_daily").upsert(
-            data, on_conflict="index_code,week_date"
+            data, on_conflict="index_code,value_date"
         ).execute()
         return True
     except Exception as e:
@@ -201,7 +233,7 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
 # =============================================================================
 
 def get_cards_with_prices(client, price_date: str) -> list:
-    """Get all eligible cards with prices for rebalancing."""
+    """Get all eligible cards with prices for rebalancing (with pagination)."""
     all_prices = []
     offset = 0
     limit = 1000
@@ -375,13 +407,13 @@ def main():
         else:
             # Find last calculated date
             response = client.from_("index_values_daily") \
-                .select("week_date") \
-                .order("week_date", desc=True) \
+                .select("value_date") \
+                .order("value_date", desc=True) \
                 .limit(1) \
                 .execute()
             
             if response.data:
-                last_date = datetime.strptime(response.data[0]["week_date"], "%Y-%m-%d").date()
+                last_date = datetime.strptime(response.data[0]["value_date"], "%Y-%m-%d").date()
                 start_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d")
             else:
                 # No data - start from inception + 1
@@ -470,14 +502,13 @@ def main():
         
         response = client.from_("index_values_daily") \
             .select("*") \
-            .order("week_date", desc=True) \
+            .order("value_date", desc=True) \
             .limit(9) \
             .execute()
         
         print("\n   📊 Latest values:")
         for row in response.data:
-            change = f"{row['change_1w']:+.2f}%" if row.get('change_1w') else "N/A"
-            print(f"      {row['index_code']:<10} | {row['week_date']} | {row['index_value']:>8.2f} | {row['n_constituents']} cards")
+            print(f"      {row['index_code']:<10} | {row['value_date']} | {row['index_value']:>8.2f} | {row['n_constituents']} cards")
         
         # Log success
         log_run_end(client, run_id, "success", records_processed=processed)

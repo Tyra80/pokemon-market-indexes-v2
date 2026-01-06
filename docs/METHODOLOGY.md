@@ -1,298 +1,263 @@
-# 📈 Methodology - Pokemon Market Indexes v2
+# Pokemon Market Indexes - Methodology
 
-Complete methodology documentation for index calculation.
-
----
-
-## Overview
-
-Pokemon Market Indexes are a family of indexes designed to measure the performance of the Pokemon TCG rare cards market.
-
-### Core Principles
-
-1. **Transparency** - Public and reproducible methodology
-2. **Liquidity** - Focus on items that are actually traded
-3. **Anti-manipulation** - Filters against outliers and short-term hype
-4. **Real Volume** - Liquidity based on actual sales, not just listings
+A comprehensive guide to how we calculate and maintain the Pokemon TCG market indexes.
 
 ---
 
-## The 3 Indexes
+## What Are These Indexes?
 
-| Index | Universe | Size | Description |
-|-------|----------|------|-------------|
-| **RARE_100** | Rare cards | 100 | Top 100 cards by ranking score |
-| **RARE_500** | Rare cards | 500 | Top 500 cards by ranking score |
-| **RARE_ALL** | Rare cards | Variable | All liquid rare cards |
+Pokemon Market Indexes track the price performance of rare Pokemon Trading Card Game (TCG) cards. Like stock market indexes (S&P 500, NASDAQ), they provide a single number that represents how the overall market is performing.
 
----
+**Base Value**: 100 (set on December 1st, 2025)
 
-## Data Sources
-
-### Prices
-
-| Source | Market | Currency | Data |
-|--------|--------|----------|------|
-| TCGplayer (via PokemonPriceTracker) | US | USD | NM price, listings, **sales volume** |
-
-### Exchange Rates
-
-- **Source**: ECB via Frankfurter API
-- **Frequency**: Daily
-- **Conversion**: EUR → USD (reserved for future Cardmarket integration)
+If the index reads **105**, the market has gained 5% since inception.
+If it reads **95**, the market has declined 5%.
 
 ---
 
-## Eligibility Criteria
+## The Three Indexes
 
-### Cards (RARE_100/500/ALL)
+| Index | Cards Tracked | Purpose |
+|-------|---------------|---------|
+| **RARE_100** | Top 100 | Blue-chip cards - the most valuable and liquid |
+| **RARE_500** | Top 500 | Broader market view |
+| **RARE_ALL** | All eligible | Complete market coverage |
 
-| Criterion | Value |
-|-----------|-------|
-| Minimum rarity | ≥ Rare |
-| Maturity | ≥ 60 days since set release |
-| Liquidity (entry) | Score ≥ 0.40 - 0.60 depending on index |
-| Liquidity (maintenance) | Score ≥ 0.30 - 0.45 for existing constituents |
-| Minimum price | ≥ $0.10 |
-| Maximum price | ≤ $100,000 |
+---
+
+## How We Select Cards
+
+### 1. Eligibility Requirements
+
+A card must meet ALL of these criteria:
+
+| Requirement | Threshold | Why? |
+|-------------|-----------|------|
+| Rarity | Rare or higher | Excludes Commons/Uncommons with minimal collector value |
+| Minimum price | $0.10 | Filters out bulk cards |
+| Maximum price | $100,000 | Excludes extreme outliers |
+| Set maturity | 60+ days old | Allows prices to stabilize after release |
 
 ### Eligible Rarities
 
+- Standard Rares: Rare, Holo Rare, Shiny Holo Rare
+- Ultra/Secret: Ultra Rare, Secret Rare, Hyper Rare
+- Illustration: Illustration Rare, Special Illustration Rare, Double Rare
+- Special: Amazing Rare, Radiant Rare, ACE SPEC Rare, Prism Rare
+- And more (see full list in settings)
+
+### 2. Liquidity Requirements
+
+**Why liquidity matters**: A card that rarely sells can have a misleading price. If only one copy sells per month, that single sale creates noise in the index. We need cards that trade regularly to get reliable price signals.
+
+#### Liquidity Score (0 to 1)
+
+We calculate a liquidity score using actual sales data:
+
+**Primary Method (Volume-Based)**:
+- Uses the last 7 days of sales
+- Recent sales count more (exponential decay)
+- Score = Weighted sales / 50 (capped at 1.0)
+
 ```
-Rare, Rare Holo, Rare Holo EX, Rare Holo GX, Rare Holo V, 
-Rare VMAX, Rare VSTAR, Rare Ultra, Rare Secret, Rare Rainbow, 
-Rare Shiny, Double Rare, Ultra Rare, Illustration Rare, 
-Special Illustration Rare, Hyper Rare, Shiny Rare, 
-Shiny Ultra Rare, ACE SPEC Rare
+Day weights: Today=1.0, -1d=0.7, -2d=0.5, -3d=0.35, -4d=0.25, -5d=0.15, -6d=0.10
 ```
 
-### Exclusions
+**Fallback Method (Listings-Based)**:
+- Used when sales data is unavailable
+- Based on number of listings by condition
+- Near Mint listings weighted highest
 
-- ❌ Graded cards (PSA, BGS, CGC)
-- ❌ Cards with rarity < Rare (Common, Uncommon)
-- ❌ Items without price data
-- ❌ Outliers (price < $0.10 or > $100,000)
+#### Condition Weighting
+
+Sales and listings are weighted by card condition:
+
+| Condition | Weight | Rationale |
+|-----------|--------|-----------|
+| Near Mint | 1.00 | Reference condition |
+| Lightly Played | 0.80 | Minor wear |
+| Moderately Played | 0.60 | Visible wear |
+| Heavily Played | 0.40 | Significant wear |
+| Damaged | 0.20 | Major damage |
+
+#### Entry Thresholds
+
+| Index | Minimum Liquidity to Enter | Minimum to Stay |
+|-------|---------------------------|-----------------|
+| RARE_100 | 0.60 | 0.45 |
+| RARE_500 | 0.45 | 0.35 |
+| RARE_ALL | 0.50 | 0.50 |
+
+#### 30-Day Trading Activity (Method D)
+
+To be included in monthly rebalancing, a card must show **consistent** trading activity:
+
+1. **Average volume** >= 0.5 sales/day (about 15 sales per month)
+2. **Trading days** >= 10 days out of 30 with at least one sale
+
+This dual requirement ensures cards aren't just liquid in bursts but trade regularly.
+
+### 3. Ranking Score
+
+Cards are ranked by:
+
+```
+Ranking Score = Price × Liquidity Score
+```
+
+This formula favors cards that are both valuable AND liquid. A $1,000 card with 0.8 liquidity (score: 800) ranks higher than a $2,000 card with 0.3 liquidity (score: 600).
 
 ---
 
-## Liquidity Calculation (B + C + D System)
+## How We Calculate Weights
 
-### Overview
+### Liquidity-Adjusted Price-Weighted
 
-The system uses a sophisticated 3-layer approach to calculate liquidity:
-
-| Method | Layer | Usage |
-|--------|-------|-------|
-| **B** | Fallback | Listings-based when no volume data available |
-| **C** | Primary | Volume-based with 7-day temporal decay |
-| **D** | Rebalancing | 30-day average volume for monthly eligibility |
-
-### Method B: Listings-Based (Fallback)
-
-Used when volume data is not available:
-
-```python
-# Condition weights
-CONDITION_WEIGHTS = {
-    "Near Mint": 1.0,
-    "Lightly Played": 0.8,
-    "Moderately Played": 0.6,
-    "Heavily Played": 0.4,
-    "Damaged": 0.2,
-}
-
-# Weighted listings calculation
-weighted_listings = (
-    nm_listings × 1.0 +
-    lp_listings × 0.8 +
-    mp_listings × 0.6 +
-    hp_listings × 0.4 +
-    dmg_listings × 0.2
-)
-
-# Score (capped at 1.0)
-liquidity_score = min(weighted_listings / 100, 1.0)
-```
-
-### Method C: Volume-Based with Temporal Decay (Primary)
-
-Uses actual sales volume with exponential decay:
-
-```python
-# Decay weights (more recent = more weight)
-VOLUME_DECAY_WEIGHTS = {
-    0: 1.00,   # Today
-    1: 0.70,   # Yesterday
-    2: 0.50,   # 2 days ago
-    3: 0.35,   # 3 days ago
-    4: 0.25,   # 4 days ago
-    5: 0.15,   # 5 days ago
-    6: 0.10,   # 6 days ago
-}
-
-# Weighted volume calculation
-weighted_volume = Σ(volume_day_i × weight_i)
-
-# Normalized by sum of weights used
-normalized_volume = weighted_volume / Σ(weights)
-
-# Score (50 sales/day = max score)
-liquidity_score = min(normalized_volume / 50, 1.0)
-```
-
-### Method D: 30-Day Average Volume (Rebalancing)
-
-Used for monthly rebalancing eligibility:
-
-```python
-avg_volume_30d = sum(daily_volumes) / 30
-
-# Minimum threshold for eligibility
-MIN_AVG_VOLUME_30D = 0.5  # 0.5 sales/day ≈ 15 sales/month
-```
-
-### Smart Liquidity Logic
+Each card's weight in the index is proportional to its **price × liquidity**:
 
 ```
-1. If volume history available (≥2 days):
-   → Use Method C (volume decay)
-
-2. Otherwise:
-   → Use Method B (listings fallback)
-
-3. For rebalancing:
-   → Apply Method D filter (30-day avg ≥ 0.5)
+Weight_i = (Price_i × Liquidity_i) / Sum(Price × Liquidity for all cards)
 ```
 
-### Score Interpretation
+**Why liquidity-adjusted?**
 
-| Score | Interpretation |
-|-------|----------------|
-| ≥ 0.70 | Very liquid |
-| 0.50 - 0.69 | Liquid |
-| 0.35 - 0.49 | Borderline |
-| < 0.35 | Illiquid |
+Standard price-weighting would give expensive but illiquid cards too much influence. A $5,000 card that trades once a month could swing the index based on a single noisy sale. By multiplying by liquidity, we reduce the impact of illiquid cards.
+
+**Example**:
+
+| Card | Price | Liquidity | Adjusted Value | Weight |
+|------|-------|-----------|----------------|--------|
+| Card A | $1,000 | 0.90 | $900 | 47.4% |
+| Card B | $800 | 0.80 | $640 | 33.7% |
+| Card C | $500 | 0.72 | $360 | 18.9% |
+| **Total** | | | **$1,900** | **100%** |
 
 ---
 
-## Ranking Score
+## How We Calculate the Index Value
 
-The ranking score determines position in the index:
+### Laspeyres Chain-Linking Method
 
-```
-Ranking_Score = Price × Liquidity_Score
-```
+This is the same method used by major financial indexes. It answers: "How much would yesterday's portfolio be worth at today's prices?"
 
-This score favors items that are both expensive AND liquid.
-
----
-
-## Weight Calculation
-
-Each constituent has a weight proportional to its price (price-weighted):
+**Formula**:
 
 ```
-Weight_i = Price_i / Σ(Prices)
-
-Σ(Weights) = 1.0
+Index_t = Index_{t-1} × (Sum of weighted current prices / Sum of weighted previous prices)
 ```
 
----
-
-## Index Value Calculation (Laspeyres Chain-Linking)
-
-### Base Value
+Or more precisely:
 
 ```
-Index_Value_0 = 100.0  (inception)
+Index_t = Index_{t-1} × [Σ(w_i × P_i,t) / Σ(w_i × P_i,t-1)]
+
+Where:
+- w_i = weight of card i (fixed during the month)
+- P_i,t = price of card i today
+- P_i,t-1 = price of card i yesterday
 ```
 
-### Subsequent Values
+**Example**:
 
+If yesterday's index was 100 and the weighted prices increased by 2%:
 ```
-Index_Value_t = Index_Value_{t-1} × Ratio_t
-
-where:
-  Ratio_t = Σ(w_i × P_i,t) / Σ(w_i × P_i,t-1)
-  w_i = constituent weight (fixed during period)
-  P_i,t = constituent price at time t
+Index_today = 100 × 1.02 = 102
 ```
 
-### Chain-Linking
+### Handling Missing Data
 
-When rebalancing occurs, the new weights are applied while preserving index continuity through chain-linking.
+We require **at least 70%** of constituents to have valid prices for the calculation. This prevents a few missing cards from distorting the index.
 
 ---
 
 ## Rebalancing
 
-### Frequency
+### When
 
-- **Index calculation**: Daily
-- **Rebalancing**: Monthly (1st of month)
+- **Monthly**: 1st of each month
+- Weights are fixed for the entire month
 
-### Rebalancing Process
+### Process
 
-1. Calculate scores for all eligible cards
-2. Apply Method D filter (30-day avg volume ≥ 0.5)
-3. Sort by ranking score descending
-4. Select top N (based on index)
+1. Recalculate liquidity scores for all eligible cards
+2. Apply 30-day trading activity filter (Method D)
+3. Rank by Ranking Score (Price × Liquidity)
+4. Select top N cards (100, 500, or all eligible)
 5. Calculate new weights
-6. Chain-link to preserve continuity
+6. Apply chain-linking to maintain continuity
 
-### Continuity Tolerance
+### Why Monthly?
 
-To avoid excessive turnover:
-- **Entry threshold**: Liquidity ≥ 0.60 (RARE_100)
-- **Maintenance threshold**: Liquidity ≥ 0.45 (existing constituents)
+- Too frequent = excessive trading costs if tracking the index
+- Too infrequent = stale composition missing market changes
+- Monthly balances responsiveness with stability
 
 ---
 
-## Outlier Detection
+## Data Sources
 
-### Rules Applied
+| Data | Source | Frequency |
+|------|--------|-----------|
+| Card prices | TCGplayer (via PokemonPriceTracker API) | Daily |
+| Sales volume | TCGplayer (via PokemonPriceTracker API) | Daily |
+| Card metadata | TCGdex API | On-demand |
+| Exchange rates | Frankfurter API (ECB) | Daily |
 
-| Rule | Threshold | Action |
-|------|-----------|--------|
-| Price too low | < $0.10 | Exclusion |
-| Price too high | > $100,000 | Exclusion |
+### Reference Price
+
+We use **Near Mint (NM) price** as the reference. This is the standard condition for collectible cards and provides the most consistent pricing.
 
 ---
 
 ## Calculation Schedule
 
-| Operation | Frequency | Time |
-|-----------|-----------|------|
-| Price fetch | Daily | 06:00 UTC |
-| Index calculation | Daily | 07:00 UTC |
-| Rebalancing | Monthly | 1st of month |
+| Operation | Time (UTC) | Description |
+|-----------|------------|-------------|
+| Price fetch | 06:00 | Get latest prices and sales volume |
+| Index calculation | 07:00 | Calculate daily index values |
+| Rebalancing | 1st of month | Monthly constituent refresh |
 
 ---
 
-## Governance
+## Key Dates
 
-### Versioning
-
-- **Current methodology**: v2.0
-- **Liquidity calibration**: v1.0 (frozen)
-
-### Changes
-
-- No retroactive modification of published values
-- Changes documented and dated
-- Notification period before major changes
+- **Inception Date**: December 1st, 2025
+- **Base Value**: 100
+- **Methodology Version**: 2.0
 
 ---
 
-## Known Limitations
+## Summary of Anti-Noise Measures
 
-1. **US Market Only** - Currently TCGplayer data only (no Cardmarket/EU)
-2. **Volume Data Coverage** - Not all cards have sales volume every day
-3. **Latency** - Prices updated daily, not real-time
-4. **Variants** - Simplified treatment of holo/reverse variants
+| Problem | Our Solution |
+|---------|--------------|
+| Illiquid cards with unreliable prices | Liquidity score threshold + Method D filter |
+| Sporadic trading | Require 10+ trading days per month |
+| Expensive illiquid cards dominating | Liquidity-Adjusted Price-Weighted |
+| Missing price data | 70% minimum match requirement |
+| Extreme prices | Min $0.10 / Max $100,000 filters |
+| New set volatility | 60-day maturity requirement |
+
+---
+
+## Limitations
+
+1. **US Market Only**: Currently uses TCGplayer data (US). Cardmarket (EU) planned for future.
+2. **Daily Updates**: Not real-time; prices are daily closing values.
+3. **Volume Coverage**: Not all cards have sales data every day.
+4. **Variants**: Holo/reverse variants treated as separate cards.
 
 ---
 
 ## Disclaimer
 
-Pokemon Market Indexes are provided for informational purposes only. They do not constitute investment advice. Past performance does not guarantee future results.
+Pokemon Market Indexes are provided for informational and educational purposes only. They do not constitute investment advice. Past performance does not guarantee future results. The Pokemon TCG market is volatile and collectibles can lose value.
+
+---
+
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 2.0 | Jan 2026 | Liquidity-Adjusted Price-Weighted, Method D double criteria (avg + days), 70% matching threshold |
+| 1.0 | Dec 2025 | Initial methodology |

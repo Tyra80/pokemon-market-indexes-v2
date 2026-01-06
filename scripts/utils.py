@@ -381,81 +381,162 @@ def calculate_liquidity_smart(client, card_id: str, current_date: str,
                                dmg_listings: int = 0) -> tuple:
     """
     Calculates smart liquidity score (B + C combined).
-    
+
     Priority:
     1. If volume history available → Method C (decay)
     2. Otherwise → Method B (listings)
-    
+
+    IMPORTANT: Recalculates weighted volume from individual condition volumes
+    to ensure consistency (daily_volume in DB may be inconsistent).
+
     Args:
         client: Supabase client
         card_id: Card ID
         current_date: Current date (YYYY-MM-DD)
         nm_listings, lp_listings, etc.: Current listings (fallback)
-    
+
     Returns:
         tuple: (liquidity_score, method_used)
     """
     from datetime import datetime, timedelta
-    
+
     # Try to get volumes for last 7 days
     try:
         current = datetime.strptime(current_date, "%Y-%m-%d").date()
         dates = [(current - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
-        
-        # Query to get volumes
+
+        # Fetch individual condition volumes to recalculate weighted volume
         response = client.from_("card_prices_daily") \
-            .select("price_date, daily_volume") \
+            .select("price_date, nm_volume, lp_volume, mp_volume, hp_volume, dmg_volume") \
             .eq("card_id", card_id) \
             .in_("price_date", dates) \
             .execute()
-        
+
         if response.data:
-            # Organize volumes by date
-            volumes_by_date = {r["price_date"]: r.get("daily_volume") for r in response.data}
+            # Calculate weighted volume for each date
+            volumes_by_date = {}
+            for row in response.data:
+                nm = row.get("nm_volume") or 0
+                lp = row.get("lp_volume") or 0
+                mp = row.get("mp_volume") or 0
+                hp = row.get("hp_volume") or 0
+                dmg = row.get("dmg_volume") or 0
+
+                weighted = (
+                    nm * CONDITION_WEIGHTS.get("Near Mint", 1.0) +
+                    lp * CONDITION_WEIGHTS.get("Lightly Played", 0.8) +
+                    mp * CONDITION_WEIGHTS.get("Moderately Played", 0.6) +
+                    hp * CONDITION_WEIGHTS.get("Heavily Played", 0.4) +
+                    dmg * CONDITION_WEIGHTS.get("Damaged", 0.2)
+                )
+
+                volumes_by_date[row["price_date"]] = weighted if weighted > 0 else None
+
             volumes = [volumes_by_date.get(d) for d in dates]
-            
+
             # Count days with volume
             valid_volumes = [v for v in volumes if v is not None and v > 0]
-            
+
             if len(valid_volumes) >= 2:  # At least 2 days with data
                 score = calculate_liquidity_from_volume(volumes)
                 return round(score, 4), "volume_decay"
-    
+
     except Exception as e:
         pass  # Fallback to listings
-    
+
     # Fallback to listings
     score = calculate_liquidity_from_listings(nm_listings, lp_listings, mp_listings, hp_listings, dmg_listings)
     return round(score, 4), "listings_fallback"
 
 
-def get_avg_volume_30d(client, card_id: str, current_date: str) -> float:
+def get_volume_stats_30d(client, card_id: str, current_date: str) -> dict:
     """
-    Calculates average volume over last 30 days (Method D - for rebalancing).
-    
+    Calculates volume statistics over last 30 days (Method D - for rebalancing).
+
+    IMPORTANT: Recalculates weighted volume from individual condition volumes
+    to ensure consistency (daily_volume in DB may be inconsistent).
+
     Returns:
-        float: Average daily volume (0 if no data)
+        dict: {
+            'avg_volume': float,      # total_volume / 30
+            'total_volume': float,    # sum of weighted volumes
+            'days_with_volume': int,  # number of days with volume > 0
+            'is_liquid': bool,        # meets both criteria
+        }
     """
     from datetime import datetime, timedelta
-    
+
+    MIN_DAYS_WITH_VOLUME = 10  # Minimum days with trading activity
+
     try:
         current = datetime.strptime(current_date, "%Y-%m-%d").date()
         start_date = (current - timedelta(days=30)).strftime("%Y-%m-%d")
-        
+
+        # Fetch individual condition volumes to recalculate weighted volume
         response = client.from_("card_prices_daily") \
-            .select("daily_volume") \
+            .select("nm_volume, lp_volume, mp_volume, hp_volume, dmg_volume") \
             .eq("card_id", card_id) \
             .gte("price_date", start_date) \
             .lte("price_date", current_date) \
-            .not_.is_("daily_volume", "null") \
             .execute()
-        
+
         if response.data:
-            volumes = [r["daily_volume"] for r in response.data if r["daily_volume"]]
-            if volumes:
-                return sum(volumes) / 30  # Average over 30 days
-        
-        return 0.0
-        
+            weighted_volumes = []
+            for row in response.data:
+                # Recalculate weighted volume for consistency
+                nm = row.get("nm_volume") or 0
+                lp = row.get("lp_volume") or 0
+                mp = row.get("mp_volume") or 0
+                hp = row.get("hp_volume") or 0
+                dmg = row.get("dmg_volume") or 0
+
+                weighted = (
+                    nm * CONDITION_WEIGHTS.get("Near Mint", 1.0) +
+                    lp * CONDITION_WEIGHTS.get("Lightly Played", 0.8) +
+                    mp * CONDITION_WEIGHTS.get("Moderately Played", 0.6) +
+                    hp * CONDITION_WEIGHTS.get("Heavily Played", 0.4) +
+                    dmg * CONDITION_WEIGHTS.get("Damaged", 0.2)
+                )
+
+                if weighted > 0:
+                    weighted_volumes.append(weighted)
+
+            days_with_volume = len(weighted_volumes)
+            total_volume = sum(weighted_volumes) if weighted_volumes else 0
+            avg_volume = total_volume / 30  # Always divide by 30 for consistency
+
+            # Card is liquid if:
+            # 1. Average volume >= threshold (MIN_AVG_VOLUME_30D checked by caller)
+            # 2. At least MIN_DAYS_WITH_VOLUME days with actual trading
+            is_liquid = days_with_volume >= MIN_DAYS_WITH_VOLUME
+
+            return {
+                'avg_volume': avg_volume,
+                'total_volume': total_volume,
+                'days_with_volume': days_with_volume,
+                'is_liquid': is_liquid,
+            }
+
+        return {
+            'avg_volume': 0.0,
+            'total_volume': 0.0,
+            'days_with_volume': 0,
+            'is_liquid': False,
+        }
+
     except Exception:
-        return 0.0
+        return {
+            'avg_volume': 0.0,
+            'total_volume': 0.0,
+            'days_with_volume': 0,
+            'is_liquid': False,
+        }
+
+
+def get_avg_volume_30d(client, card_id: str, current_date: str) -> float:
+    """
+    Backwards-compatible wrapper for get_volume_stats_30d.
+    Returns just the average volume.
+    """
+    stats = get_volume_stats_30d(client, card_id, current_date)
+    return stats['avg_volume']

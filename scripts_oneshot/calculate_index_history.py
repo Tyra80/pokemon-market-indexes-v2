@@ -28,7 +28,7 @@ from scripts.utils import (
     get_db_client, batch_upsert,
     log_run_start, log_run_end, send_discord_notification,
     print_header, print_step, print_success, print_error,
-    calculate_liquidity_smart, get_avg_volume_30d
+    calculate_liquidity_smart, get_volume_stats_30d
 )
 from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, MIN_AVG_VOLUME_30D
 
@@ -185,7 +185,9 @@ def calculate_laspeyres_value(client, index_code: str, constituents: list,
                 matched_count += 1
     
     # Calculate
-    if denominator > 0 and matched_count >= len(constituents) * 0.5:
+    # Require at least 70% of constituents to have valid prices
+    # This ensures the index is representative and reduces noise
+    if denominator > 0 and matched_count >= len(constituents) * 0.7:
         ratio = numerator / denominator
         new_value = prev_value * ratio
         change_pct = (ratio - 1) * 100
@@ -329,7 +331,35 @@ def do_rebalancing(client, index_code: str, month: str, price_date: str) -> list
     # Filter by liquidity threshold
     threshold = config.get("liquidity_threshold_entry", 0.40)
     eligible = [c for c in cards if c.get("liquidity_score", 0) >= threshold]
-    
+
+    # Additional filter by 30-day volume stats (Method D)
+    # Requires BOTH sufficient average volume AND regular trading activity
+    eligible_with_volume = []
+    for card in eligible:
+        vol_stats = get_volume_stats_30d(client, card["card_id"], price_date)
+        card["avg_volume_30d"] = vol_stats['avg_volume']
+        card["days_with_volume"] = vol_stats['days_with_volume']
+
+        # Keep card if:
+        # 1. No volume data at all - use listings fallback, can't filter
+        # 2. Has volume data AND meets BOTH criteria:
+        #    a) avg_volume >= MIN_AVG_VOLUME_30D (sufficient total volume)
+        #    b) is_liquid = True (at least 10 days with trading)
+        no_volume_data = vol_stats['days_with_volume'] == 0
+        has_sufficient_volume = vol_stats['avg_volume'] >= MIN_AVG_VOLUME_30D
+        has_regular_trading = vol_stats['is_liquid']  # >= 10 days with volume
+
+        if no_volume_data:
+            # No volume data - keep if using listings fallback
+            if card.get("liquidity_method") == "listings_fallback":
+                eligible_with_volume.append(card)
+        elif has_sufficient_volume and has_regular_trading:
+            # Has enough volume AND trades regularly
+            eligible_with_volume.append(card)
+        # else: exclude - either low volume or irregular trading
+
+    eligible = eligible_with_volume
+
     # Sort by ranking score
     eligible.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
     
@@ -340,10 +370,14 @@ def do_rebalancing(client, index_code: str, month: str, price_date: str) -> list
     else:
         constituents = eligible
     
-    # Calculate weights
-    total_price = sum(c.get("price", 0) for c in constituents)
+    # Calculate weights (Liquidity-Adjusted Price-Weighted)
     for c in constituents:
-        c["weight"] = c.get("price", 0) / total_price if total_price > 0 else 0
+        liquidity = c.get("liquidity_score", 0) or 0.1  # Floor at 0.1 to avoid zero
+        c["adjusted_value"] = c.get("price", 0) * liquidity
+
+    total_adjusted = sum(c.get("adjusted_value", 0) for c in constituents)
+    for c in constituents:
+        c["weight"] = c.get("adjusted_value", 0) / total_adjusted if total_adjusted > 0 else 0
     
     # Save constituents
     rows = []
@@ -481,9 +515,13 @@ def main():
                     client, index_code, constituents,
                     prev_value, prev_date, calc_date
                 )
-                
+
+                # Calculate market cap using current prices (not composite_price from selection)
+                card_ids = [c["card_id"] for c in constituents]
+                current_prices = get_prices_for_date(client, card_ids, calc_date)
+                market_cap = sum(current_prices.get(c["card_id"], c.get("price", 0)) for c in constituents)
+
                 # Save
-                market_cap = sum(c.get("price", 0) for c in constituents)
                 save_index_value(client, index_code, calc_date, new_value, len(constituents), market_cap)
                 
                 # Display

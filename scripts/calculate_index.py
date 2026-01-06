@@ -30,7 +30,7 @@ from scripts.utils import (
     get_db_client, batch_upsert,
     log_run_start, log_run_end, send_discord_notification, get_today,
     print_header, print_step, print_success, print_error,
-    calculate_liquidity_smart, get_avg_volume_30d
+    calculate_liquidity_smart, get_volume_stats_30d
 )
 from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, MIN_AVG_VOLUME_30D
 
@@ -238,24 +238,33 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
     threshold = config.get("liquidity_threshold_entry", 0.40)
     eligible = [c for c in cards if c.get("liquidity_score", 0) >= threshold]
     
-    # Additional filter by 30-day average volume (Method D) if available
+    # Additional filter by 30-day volume stats (Method D)
+    # Requires BOTH sufficient average volume AND regular trading activity
     if client and price_date:
         eligible_with_volume = []
         for card in eligible:
-            avg_vol = get_avg_volume_30d(client, card["card_id"], price_date)
-            card["avg_volume_30d"] = avg_vol
-            
-            # If we have volume data, apply threshold
-            # Otherwise, keep the card (fallback to liquidity_score)
-            if avg_vol > 0 and avg_vol < MIN_AVG_VOLUME_30D:
-                # Volume too low, but keep if using listings fallback
-                # (to not exclude cards without volume history)
+            vol_stats = get_volume_stats_30d(client, card["card_id"], price_date)
+            card["avg_volume_30d"] = vol_stats['avg_volume']
+            card["days_with_volume"] = vol_stats['days_with_volume']
+
+            # Keep card if:
+            # 1. No volume data at all - use listings fallback, can't filter
+            # 2. Has volume data AND meets BOTH criteria:
+            #    a) avg_volume >= MIN_AVG_VOLUME_30D (sufficient total volume)
+            #    b) is_liquid = True (at least 10 days with trading)
+            no_volume_data = vol_stats['days_with_volume'] == 0
+            has_sufficient_volume = vol_stats['avg_volume'] >= MIN_AVG_VOLUME_30D
+            has_regular_trading = vol_stats['is_liquid']  # >= 10 days with volume
+
+            if no_volume_data:
+                # No volume data - keep if using listings fallback
                 if card.get("liquidity_method") == "listings_fallback":
                     eligible_with_volume.append(card)
-                # Otherwise, we have volume data but it's insufficient → exclude
-            else:
+            elif has_sufficient_volume and has_regular_trading:
+                # Has enough volume AND trades regularly
                 eligible_with_volume.append(card)
-        
+            # else: exclude - either low volume or irregular trading
+
         eligible = eligible_with_volume
     
     # Sort by ranking score descending
@@ -272,20 +281,28 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
 def calculate_weights(constituents: list) -> list:
     """
     Calculate weights for each constituent.
-    Method: Capitalization (price-weighted)
-    weight_i = price_i / sum(prices)
+    Method: Liquidity-Adjusted Price-Weighted
+    weight_i = (price_i × liquidity_i) / Σ(price × liquidity)
+
+    This reduces the impact of expensive but illiquid cards,
+    making the index more robust to noise.
     """
-    total_price = sum(c.get("price", 0) for c in constituents)
-    
-    if total_price == 0:
+    # Calculate adjusted values (price × liquidity)
+    for c in constituents:
+        liquidity = c.get("liquidity_score", 0) or 0.1  # Floor at 0.1 to avoid zero
+        c["adjusted_value"] = c.get("price", 0) * liquidity
+
+    total_adjusted = sum(c.get("adjusted_value", 0) for c in constituents)
+
+    if total_adjusted == 0:
         equal_weight = 1.0 / len(constituents) if constituents else 0
         for c in constituents:
             c["weight"] = equal_weight
         return constituents
-    
+
     for c in constituents:
-        c["weight"] = c.get("price", 0) / total_price
-    
+        c["weight"] = c.get("adjusted_value", 0) / total_adjusted
+
     return constituents
 
 
@@ -396,8 +413,9 @@ def calculate_index_laspeyres(client, index_code: str, constituents: list,
             denominator += weight * prev_price
             matched_count += 1
     
-    # Verification
-    if denominator == 0 or matched_count < len(prev_constituents) * 0.5:
+    # Verification: require at least 70% of constituents to have valid prices
+    # This ensures the index is representative and reduces noise
+    if denominator == 0 or matched_count < len(prev_constituents) * 0.7:
         # Not enough data for reliable calculation
         # Fallback: use average of available variations
         if matched_count > 0:

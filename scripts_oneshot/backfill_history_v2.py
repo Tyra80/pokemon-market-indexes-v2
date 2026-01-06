@@ -117,49 +117,55 @@ def get_existing_dates_for_set(client, set_id: str) -> set:
         return set()
 
 
-def extract_historical_prices(card_data: dict, target_dates: set = None) -> list:
+def extract_historical_prices(card_data: dict, target_dates: set = None, debug: bool = False) -> list:
     """
     Extrait les prix historiques d'une carte.
-    
+
     FIX INCLUS:
     - Récupère les volumes de TOUTES les conditions
     - daily_volume = weighted volume
     """
     if not card_data:
         return []
-    
+
     card_id = card_data.get("id")
     if not card_id:
         return []
-    
+
     # Vérifie la rareté - FILTRE RARE ET PLUS
     rarity = card_data.get("rarity", "")
     if rarity not in RARE_RARITIES:
         return []
-    
+
     # Prix actuels (pour les listings)
     prices = card_data.get("prices", {})
     conditions_current = prices.get("conditions", {})
-    
+
     # Listings actuels
     nm_current = conditions_current.get("Near Mint", {})
     lp_current = conditions_current.get("Lightly Played", {})
     mp_current = conditions_current.get("Moderately Played", {})
     hp_current = conditions_current.get("Heavily Played", {})
     dmg_current = conditions_current.get("Damaged", {})
-    
+
     # Historique
     price_history = card_data.get("priceHistory", {})
     if not price_history or not isinstance(price_history, dict):
         return []
-    
+
     conditions_history = price_history.get("conditions", {})
     if not conditions_history:
         return []
-    
+
     # On prend l'historique Near Mint comme référence principale
     nm_history_data = conditions_history.get("Near Mint", {})
     nm_history = nm_history_data.get("history", [])
+
+    # Debug: affiche la structure d'une entrée d'historique
+    if debug and nm_history and len(nm_history) > 0:
+        print(f"\n   🔍 DEBUG - Card: {card_data.get('name', 'unknown')}")
+        print(f"   🔍 DEBUG - History entry keys: {nm_history[0].keys() if isinstance(nm_history[0], dict) else 'not a dict'}")
+        print(f"   🔍 DEBUG - Sample entry: {nm_history[0]}")
     
     if not nm_history:
         return []
@@ -260,10 +266,10 @@ def extract_historical_prices(card_data: dict, target_dates: set = None) -> list
     return results
 
 
-def fetch_history_for_set(set_name: str, days: int, target_dates: set = None) -> tuple:
+def fetch_history_for_set(set_name: str, days: int, target_dates: set = None, debug: bool = False) -> tuple:
     """
     Récupère l'historique des prix d'un set.
-    
+
     Returns: (all_prices, stats, credits_remaining)
     """
     try:
@@ -273,41 +279,46 @@ def fetch_history_for_set(set_name: str, days: int, target_dates: set = None) ->
             "includeHistory": "true",
             "days": days,
         })
-        
+
         if data is None:
             return [], {"total": 0, "with_history": 0, "prices": 0, "skipped": 0}, credits_remaining
-        
+
         cards = data.get("data", [])
-        
+
         if isinstance(cards, dict):
             cards = [cards]
-        
+
         stats = {
             "total": len(cards),
             "with_history": 0,
             "prices": 0,
             "skipped": 0,
         }
-        
+
         all_prices = []
-        
+        debug_done = False
+
         for card in cards:
             if not card or not isinstance(card, dict):
                 continue
-            
+
             # Filtre par rareté
             rarity = card.get("rarity", "")
             if rarity not in RARE_RARITIES:
                 stats["skipped"] += 1
                 continue
-            
-            historical_prices = extract_historical_prices(card, target_dates)
-            
+
+            # Debug mode: show first card's structure
+            should_debug = debug and not debug_done
+            historical_prices = extract_historical_prices(card, target_dates, debug=should_debug)
+            if should_debug:
+                debug_done = True
+
             if historical_prices:
                 all_prices.extend(historical_prices)
                 stats["prices"] += len(historical_prices)
                 stats["with_history"] += 1
-        
+
         return all_prices, stats, credits_remaining
         
     except Exception as e:
@@ -319,8 +330,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=90, help="Nombre de jours d'historique (max 90)")
     parser.add_argument("--force", action="store_true", help="Ignore le cache, récupère tout")
+    parser.add_argument("--debug", action="store_true", help="Affiche la structure des données API")
     args = parser.parse_args()
-    
+
     days = min(args.days, 90)  # API limite à 90 jours
     
     # Calcule les dates cibles (de J-1 à J-days)
@@ -394,8 +406,12 @@ def main():
                 dates_to_fetch = target_dates
                 print(f"\n   [{i}/{len(sets)}] 📦 {set_name}")
             
-            # Fetch from API
-            prices, stats, credits_remaining = fetch_history_for_set(set_name, days, dates_to_fetch)
+            # Fetch from API (debug mode only for first set)
+            is_first_set = (i == 1)
+            prices, stats, credits_remaining = fetch_history_for_set(
+                set_name, days, dates_to_fetch,
+                debug=(args.debug and is_first_set)
+            )
             api_calls += 1
             
             # ============================================================

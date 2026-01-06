@@ -5,7 +5,7 @@ Fetches card prices from PokemonPriceTracker.
 
 Optimized strategy:
 - Uses /cards?set={name}&fetchAllInSet=true to fetch all cards from a set with prices
-- Uses includeHistory=true to get sales volume data
+- Uses includeHistory=true&days=2 to get sales volume data
 - Cost: 2 credits per card (with history)
 - ~13k rare cards = ~26k credits (well under 200k/day Business plan limit)
 
@@ -199,30 +199,29 @@ def extract_price_data(card_data: dict, price_date: str) -> dict:
         total_listings = prices.get("listings", 0) or 0
     
     # =========================================================================
-    # NEW: Extract sales volume from priceHistory (J-1 for consolidated data)
+    # Extract sales volume from priceHistory
     # =========================================================================
     nm_volume = None
     lp_volume = None
     mp_volume = None
     hp_volume = None
     dmg_volume = None
-    
+
     price_history = card_data.get("priceHistory", {})
     if price_history and isinstance(price_history, dict):
         conditions_history = price_history.get("conditions", {})
-        
-        # For each condition, get the volume from YESTERDAY (J-1)
-        # because today's volume may not be consolidated yet
+
+        # For each condition, get the volume from the most recent entry
         for cond_name, cond_history in conditions_history.items():
             if not isinstance(cond_history, dict):
                 continue
-            
+
             history_list = cond_history.get("history", [])
-            if history_list and len(history_list) >= 2:
-                # Take J-1 (yesterday) for consolidated volume
-                yesterday = history_list[-2]
-                if isinstance(yesterday, dict):
-                    vol = yesterday.get("volume")
+            if history_list:
+                # Take the most recent entry (last in list)
+                latest = history_list[-1]
+                if isinstance(latest, dict):
+                    vol = latest.get("volume")
                     if vol is not None:
                         # Assign to correct field
                         if cond_name == "Near Mint":
@@ -309,8 +308,8 @@ def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = T
         data, credits_remaining = api_request("/cards", {
             "set": set_name,
             "fetchAllInSet": "true",
-            "includeHistory": "true",  # NEW: enables history
-            "days": 1,                  # NEW: just the last day (for volume)
+            "includeHistory": "true",
+            "days": 2,  # Get 2 days to ensure we have consolidated volume data
         })
 
         if data is None:

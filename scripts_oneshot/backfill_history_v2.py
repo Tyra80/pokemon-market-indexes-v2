@@ -166,6 +166,11 @@ def extract_historical_prices(card_data: dict, target_dates: set = None, debug: 
         print(f"\n   🔍 DEBUG - Card: {card_data.get('name', 'unknown')}")
         print(f"   🔍 DEBUG - History entry keys: {nm_history[0].keys() if isinstance(nm_history[0], dict) else 'not a dict'}")
         print(f"   🔍 DEBUG - Sample entry: {nm_history[0]}")
+        # Show volume extraction
+        for entry in nm_history[:3]:
+            vol = entry.get("volume")
+            dt = entry.get("date", "")[:10]
+            print(f"   🔍 DEBUG - Date: {dt}, Volume: {vol} (type: {type(vol).__name__})")
     
     if not nm_history:
         return []

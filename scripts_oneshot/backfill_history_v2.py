@@ -25,7 +25,7 @@ from datetime import datetime, date, timedelta
 # Imports locaux
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.utils import (
-    get_db_client, batch_upsert,
+    get_db_client, batch_upsert, fetch_all_paginated,
     log_run_start, log_run_end, send_discord_notification, get_today,
     print_header, print_step, print_success, print_error
 )
@@ -88,33 +88,30 @@ def get_existing_dates_for_set(client, set_id: str) -> set:
     """
     Récupère les dates déjà présentes en DB pour un set.
     Retourne un set de dates (YYYY-MM-DD) où on a déjà des données.
+
+    Utilise fetch_all_paginated pour gérer les sets > 1000 cartes.
     """
     try:
-        # Récupère les card_ids du set
-        response = client.from_("cards") \
-            .select("card_id") \
-            .eq("set_id", set_id) \
-            .execute()
-        
-        if not response.data:
+        # Récupère les card_ids du set (avec pagination)
+        cards = fetch_all_paginated(client, "cards", "card_id", {"set_id": set_id})
+
+        if not cards:
             return set()
-        
-        card_ids = [c["card_id"] for c in response.data]
-        
+
+        card_ids = [c["card_id"] for c in cards]
+
         # Récupère les dates existantes pour ces cartes
         # On prend juste une carte représentative pour checker
         sample_card_id = card_ids[0]
-        
-        response = client.from_("card_prices_daily") \
-            .select("price_date") \
-            .eq("card_id", sample_card_id) \
-            .execute()
-        
-        if not response.data:
+
+        # Récupère les dates avec pagination (peut avoir > 90 jours d'historique)
+        prices = fetch_all_paginated(client, "card_prices_daily", "price_date", {"card_id": sample_card_id})
+
+        if not prices:
             return set()
-        
-        return {row["price_date"] for row in response.data}
-        
+
+        return {row["price_date"] for row in prices}
+
     except Exception as e:
         print(f"   ⚠️ Error checking existing dates: {e}")
         return set()
@@ -358,12 +355,11 @@ def main():
     api_calls = 0
     
     try:
-        # Récupère la liste des sets
+        # Récupère la liste des sets (avec pagination pour > 1000 sets)
         print_step(2, "Loading sets")
-        
-        response = client.from_("sets").select("set_id, name").execute()
-        sets = response.data
-        
+
+        sets = fetch_all_paginated(client, "sets", "set_id, name")
+
         print_success(f"{len(sets)} sets to process")
         
         # Récupère l'historique par set

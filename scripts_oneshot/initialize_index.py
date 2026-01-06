@@ -1,10 +1,10 @@
 """
-Pokemon Market Indexes v2 - Initialize Index (December 1st, 2025)
+Pokemon Market Indexes v2 - Initialize Index (December 6th, 2025)
 =================================================================
 One-time script to initialize the indexes with base value 100.
 
 This script:
-1. Uses price data from 2025-12-01 (from backfill)
+1. Uses price data from 2025-12-06 (first date with daily data)
 2. Selects constituents using smart liquidity (B+C+D method)
 3. Sets base index value = 100 for all indexes
 4. Saves constituents and initial index values
@@ -34,7 +34,7 @@ from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, MIN_AVG_
 # =============================================================================
 
 # Index inception date
-INCEPTION_DATE = "2025-12-01"
+INCEPTION_DATE = "2025-12-06"
 INCEPTION_MONTH = "2025-12-01"  # First day of month for constituents
 
 # Base index value

@@ -8,7 +8,7 @@ A comprehensive guide to how we calculate and maintain the Pokemon TCG market in
 
 Pokemon Market Indexes track the price performance of rare Pokemon Trading Card Game (TCG) cards. Like stock market indexes (S&P 500, NASDAQ), they provide a single number that represents how the overall market is performing.
 
-**Base Value**: 100 (set on December 1st, 2025)
+**Base Value**: 100 (set on December 6th, 2025)
 
 If the index reads **105**, the market has gained 5% since inception.
 If it reads **95**, the market has declined 5%.
@@ -221,7 +221,7 @@ We use **Near Mint (NM) price** as the reference. This is the standard condition
 
 ## Key Dates
 
-- **Inception Date**: December 1st, 2025
+- **Inception Date**: December 6th, 2025
 - **Base Value**: 100
 - **Methodology Version**: 2.0
 

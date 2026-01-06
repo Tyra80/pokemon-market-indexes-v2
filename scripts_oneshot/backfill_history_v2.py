@@ -53,7 +53,7 @@ def api_request(endpoint: str, params: dict = None, max_retries: int = 5) -> tup
             response = requests.get(url, headers=HEADERS, params=params, timeout=120)
             
             # Récupère les crédits restants depuis les headers
-            credits_remaining = int(response.headers.get("X-RateLimit-Remaining", -1))
+            credits_remaining = int(response.headers.get("X-Ratelimit-Daily-Remaining", -1))
             
             if response.status_code == 429:
                 # Crédits épuisés !
@@ -235,7 +235,7 @@ def extract_historical_prices(card_data: dict, target_dates: set = None, debug: 
                 (dmg_volume or 0) * CONDITION_WEIGHTS.get("Damaged", 0.2)
             )
             
-            daily_volume = weighted_volume if weighted_volume > 0 else None
+            daily_volume = round(weighted_volume) if weighted_volume > 0 else None
             
             results.append({
                 "price_date": price_date,
@@ -492,8 +492,8 @@ def main():
                 total_prices += result['saved']
                 all_prices = []
             
-            # Pause pour rate limit
-            time.sleep(0.5)
+            # Pause pour rate limit (API consomme ~200 calls/set, limite = 200/min)
+            time.sleep(61)
         
         # Dernier batch
         if all_prices:

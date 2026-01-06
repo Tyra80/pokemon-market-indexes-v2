@@ -33,12 +33,4 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        run: |
-          python -c "
-          from scripts.utils import get_db_client
-          client = get_db_client()
-          result = client.from_('sets').select('set_id').limit(1).execute()
-          if not result.data:
-              raise Exception('No data returned - database may be empty or inaccessible')
-          print(f'✅ Keepalive OK - Database is active ({len(result.data)} row returned)')
-          "
+        run: python scripts/keepalive.py

@@ -55,14 +55,132 @@ code .
 ### 2.3 Create the tables
 1. In Supabase, go to **SQL Editor** (code icon)
 2. Click **New query**
-3. Copy-paste **ALL** content from `sql/001_schema.sql`
-4. Click **Run** (or Ctrl+Enter)
-5. You should see: `Schema v2 created successfully!`
+3. Copy-paste the schema below and click **Run** (or Ctrl+Enter)
 
-### 2.4 Add volume columns
-1. Create another new query
-2. Copy-paste content from `sql/005_add_daily_volume.sql`
-3. Click **Run**
+```sql
+-- ============================================================
+-- Pokemon Market Indexes v2 - Database Schema
+-- ============================================================
+
+-- Sets table
+CREATE TABLE IF NOT EXISTS sets (
+    set_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    series TEXT,
+    release_date DATE,
+    card_count INTEGER,
+    tcgdex_id TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Cards table
+CREATE TABLE IF NOT EXISTS cards (
+    card_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    set_id TEXT REFERENCES sets(set_id),
+    card_number TEXT,
+    rarity TEXT,
+    tcgplayer_id TEXT,
+    ppt_id TEXT,
+    image_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Daily prices table
+CREATE TABLE IF NOT EXISTS card_prices_daily (
+    price_date DATE NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(card_id),
+    market_price NUMERIC(10,2),
+    low_price NUMERIC(10,2),
+    mid_price NUMERIC(10,2),
+    high_price NUMERIC(10,2),
+    nm_price NUMERIC(10,2),
+    nm_listings INTEGER,
+    lp_price NUMERIC(10,2),
+    lp_listings INTEGER,
+    mp_price NUMERIC(10,2),
+    mp_listings INTEGER,
+    hp_price NUMERIC(10,2),
+    hp_listings INTEGER,
+    dmg_price NUMERIC(10,2),
+    dmg_listings INTEGER,
+    total_listings INTEGER,
+    daily_volume NUMERIC(10,2),
+    nm_volume INTEGER,
+    lp_volume INTEGER,
+    mp_volume INTEGER,
+    hp_volume INTEGER,
+    dmg_volume INTEGER,
+    liquidity_score NUMERIC(6,4),
+    last_updated_api TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (price_date, card_id)
+);
+
+-- FX rates table
+CREATE TABLE IF NOT EXISTS fx_rates_daily (
+    rate_date DATE PRIMARY KEY,
+    eur_usd NUMERIC(10,6) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index values table
+CREATE TABLE IF NOT EXISTS index_values_daily (
+    value_date DATE NOT NULL,
+    index_code TEXT NOT NULL,
+    index_value NUMERIC(12,4) NOT NULL,
+    change_1d NUMERIC(8,4),
+    change_1w NUMERIC(8,4),
+    change_1m NUMERIC(8,4),
+    change_3m NUMERIC(8,4),
+    change_ytd NUMERIC(8,4),
+    n_constituents INTEGER,
+    total_market_cap NUMERIC(16,2),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (value_date, index_code)
+);
+
+-- Monthly constituents table
+CREATE TABLE IF NOT EXISTS constituents_monthly (
+    month DATE NOT NULL,
+    index_code TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    rank INTEGER,
+    weight NUMERIC(8,6),
+    composite_price NUMERIC(10,2),
+    liquidity_score NUMERIC(6,4),
+    liquidity_method TEXT,
+    ranking_score NUMERIC(12,4),
+    is_new BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (month, index_code, item_id)
+);
+
+-- Run logs table
+CREATE TABLE IF NOT EXISTS run_logs (
+    run_id SERIAL PRIMARY KEY,
+    script_name TEXT NOT NULL,
+    started_at TIMESTAMPTZ DEFAULT NOW(),
+    ended_at TIMESTAMPTZ,
+    status TEXT DEFAULT 'running',
+    records_processed INTEGER,
+    error_message TEXT,
+    details JSONB
+);
+
+-- Create indexes for better query performance
+CREATE INDEX IF NOT EXISTS idx_cards_set ON cards(set_id);
+CREATE INDEX IF NOT EXISTS idx_cards_rarity ON cards(rarity);
+CREATE INDEX IF NOT EXISTS idx_prices_date ON card_prices_daily(price_date);
+CREATE INDEX IF NOT EXISTS idx_prices_card ON card_prices_daily(card_id);
+CREATE INDEX IF NOT EXISTS idx_index_values_code ON index_values_daily(index_code);
+CREATE INDEX IF NOT EXISTS idx_constituents_month ON constituents_monthly(month);
+CREATE INDEX IF NOT EXISTS idx_constituents_index ON constituents_monthly(index_code);
+```
+
+4. You should see the query execute successfully
 
 **Verification:**
 - Go to **Table Editor** (table icon)

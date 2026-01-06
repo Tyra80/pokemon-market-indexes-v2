@@ -38,25 +38,35 @@ HEADERS = {
 
 
 
-def api_request(endpoint: str, params: dict = None, max_retries: int = 5) -> dict:
+def api_request(endpoint: str, params: dict = None, max_retries: int = 5) -> tuple:
     """
     Makes a request to the API with automatic retry.
+
+    Returns:
+        tuple: (data_dict, credits_remaining) or (None, 0) on failure
     """
     url = f"{BASE_URL}{endpoint}"
-    
+
     for attempt in range(max_retries):
         try:
             response = requests.get(url, headers=HEADERS, params=params, timeout=60)
-            
+
+            # Extract credits from headers
+            credits_remaining = int(response.headers.get("X-Credits-Remaining", -1))
+
             if response.status_code == 429:
+                # No credits left
+                if credits_remaining == 0:
+                    print(f"   ❌ API credits exhausted!")
+                    return None, 0
                 wait_time = 10 * (attempt + 1)  # 10s, 20s, 30s, 40s, 50s
                 print(f"   ⏳ Rate limit, waiting {wait_time}s... (attempt {attempt + 1}/{max_retries})")
                 time.sleep(wait_time)
                 continue
-            
+
             response.raise_for_status()
-            return response.json()
-            
+            return response.json(), credits_remaining
+
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429 and attempt < max_retries - 1:
                 continue
@@ -65,17 +75,39 @@ def api_request(endpoint: str, params: dict = None, max_retries: int = 5) -> dic
                 time.sleep(5)
                 continue
             print(f"   ❌ Failed after {max_retries} attempts: {e}")
-            return None
-            
+            return None, 0
+
         except Exception as e:
             if attempt < max_retries - 1:
                 print(f"   ⚠️ Error: {e}, retrying...")
                 time.sleep(5)
                 continue
             print(f"   ❌ Failed after {max_retries} attempts: {e}")
-            return None
-    
-    return None
+            return None, 0
+
+    return None, 0
+
+
+def check_api_credits() -> int:
+    """
+    Check available API credits before starting.
+    Makes a minimal API call to get credits from headers.
+
+    Returns:
+        int: Credits remaining, or -1 if unable to check
+    """
+    try:
+        response = requests.get(
+            f"{BASE_URL}/cards",
+            headers=HEADERS,
+            params={"set": "Base Set", "limit": 1},
+            timeout=30
+        )
+        credits = int(response.headers.get("X-Credits-Remaining", -1))
+        return credits
+    except Exception as e:
+        print(f"   ⚠️ Could not check credits: {e}")
+        return -1
 
 
 def calculate_liquidity_score(prices_data: dict) -> tuple:
@@ -271,10 +303,10 @@ def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = T
         filter_rarity: If True, only keep cards with rarity >= Rare
 
     Returns:
-        tuple: (prices_list, stats_dict)
+        tuple: (prices_list, stats_dict, credits_remaining)
     """
     try:
-        data = api_request("/cards", {
+        data, credits_remaining = api_request("/cards", {
             "set": set_name,
             "fetchAllInSet": "true",
             "includeHistory": "true",  # NEW: enables history
@@ -282,7 +314,7 @@ def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = T
         })
 
         if data is None:
-            return [], {"total": 0, "filtered": 0, "skipped": 0, "with_volume": 0}
+            return [], {"total": 0, "filtered": 0, "skipped": 0, "with_volume": 0}, credits_remaining
 
         cards = data.get("data", [])
 
@@ -321,17 +353,20 @@ def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = T
                         stats["with_volume"] += 1
                         stats["total_volume"] += price_data["daily_volume"]
 
-        return prices, stats
+        return prices, stats, credits_remaining
 
     except Exception as e:
         print(f"   ⚠️ Error: {e}")
-        return [], {"total": 0, "filtered": 0, "skipped": 0, "with_volume": 0}
+        return [], {"total": 0, "filtered": 0, "skipped": 0, "with_volume": 0}, -1
 
 
 def main():
     from datetime import date, timedelta
     # Prices fetched at 06:00 UTC are yesterday's closing (US time)
     today = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Minimum credits required to proceed (rough estimate: 13k cards * 2 credits)
+    MIN_CREDITS_REQUIRED = 5000
 
     print_header("💰 Pokemon Market Indexes - Fetch Prices (with Volume)")
     print(f"📅 Date: {today}")
@@ -340,8 +375,25 @@ def main():
     print(f"💰 API cost: 2 credits/card")
     print()
 
+    # Pre-check API credits
+    print_step(1, "Checking API credits")
+    initial_credits = check_api_credits()
+    if initial_credits >= 0:
+        print_success(f"API credits available: {initial_credits:,}")
+        if initial_credits < MIN_CREDITS_REQUIRED:
+            print_error(f"Insufficient credits! Need at least {MIN_CREDITS_REQUIRED:,} credits.")
+            print(f"   Current: {initial_credits:,}, Required: {MIN_CREDITS_REQUIRED:,}")
+            send_discord_notification(
+                "⚠️ Fetch Prices - Skipped",
+                f"Insufficient API credits: {initial_credits:,} < {MIN_CREDITS_REQUIRED:,}",
+                success=False
+            )
+            return
+    else:
+        print(f"   ⚠️ Could not verify credits, proceeding anyway...")
+
     # Connection
-    print_step(1, "Connecting to Supabase")
+    print_step(2, "Connecting to Supabase")
     try:
         client = get_db_client()
         print_success("Connected to Supabase")
@@ -351,17 +403,19 @@ def main():
     
     # Log run
     run_id = log_run_start(client, "fetch_prices")
-    
+
     total_prices = 0
     total_sets = 0
     total_skipped = 0
     total_with_volume = 0
     total_volume = 0
     skipped_by_rarity = {}
-    
+    credits_exhausted = False
+    last_credits = initial_credits
+
     try:
         # Get list of sets from database
-        print_step(2, "Loading sets from Supabase")
+        print_step(3, "Loading sets from Supabase")
         
         response = client.from_("sets").select("set_id, name").execute()
         sets = response.data
@@ -373,44 +427,64 @@ def main():
             return
         
         # Fetch prices by set
-        print_step(3, "Fetching prices by set (with volume)")
+        print_step(4, "Fetching prices by set (with volume)")
         
         all_prices = []
         
         for i, set_data in enumerate(sets, 1):
             set_name = set_data.get("name")
-            
+
             if not set_name:
                 continue
-            
+
             print(f"\n   [{i}/{len(sets)}] 📦 {set_name}")
-            
-            prices, stats = fetch_prices_for_set(set_name, today, filter_rarity=True)
-            
+
+            prices, stats, credits_remaining = fetch_prices_for_set(set_name, today, filter_rarity=True)
+
+            # Check for credit exhaustion
+            if credits_remaining == 0:
+                print(f"\n   ❌ API CREDITS EXHAUSTED!")
+                print(f"   Saving {len(all_prices)} pending prices before stopping...")
+                credits_exhausted = True
+
+                # Save any pending prices before stopping
+                if all_prices:
+                    result = batch_upsert(client, "card_prices_daily", all_prices,
+                                          on_conflict="price_date,card_id")
+                    total_prices += result['saved']
+                    all_prices = []
+
+                break
+
+            # Track credits
+            if credits_remaining > 0:
+                last_credits = credits_remaining
+
             if prices:
                 all_prices.extend(prices)
                 vol_info = f" | 📈 {stats.get('with_volume', 0)} with volume" if stats.get('with_volume', 0) > 0 else ""
-                print(f"   ✅ {stats['filtered']}/{stats['total']} cards{vol_info}")
+                credits_info = f" | 💳 {credits_remaining:,}" if credits_remaining > 0 else ""
+                print(f"   ✅ {stats['filtered']}/{stats['total']} cards{vol_info}{credits_info}")
             else:
                 print(f"   ⚠️ No prices (total: {stats['total']}, skipped: {stats['skipped']})")
-            
+
             total_sets += 1
             total_skipped += stats.get("skipped", 0)
             total_with_volume += stats.get("with_volume", 0)
             total_volume += stats.get("total_volume", 0)
-            
+
             # Aggregate skipped rarity stats
             for rarity, count in stats.get("skipped_rarities", {}).items():
                 skipped_by_rarity[rarity] = skipped_by_rarity.get(rarity, 0) + count
-            
+
             # Save in batches of 2000
             if len(all_prices) >= 2000:
-                result = batch_upsert(client, "card_prices_daily", all_prices, 
+                result = batch_upsert(client, "card_prices_daily", all_prices,
                                       on_conflict="price_date,card_id")
                 print(f"\n   💾 Batch saved: {result['saved']} prices")
                 total_prices += result['saved']
                 all_prices = []
-            
+
             # Pause for rate limit
             time.sleep(0.5)
         
@@ -422,7 +496,7 @@ def main():
             total_prices += result['saved']
         
         # Verification
-        print_step(4, "Verification")
+        print_step(5, "Verification")
         
         response = client.from_("card_prices_daily") \
             .select("*", count="exact") \
@@ -454,33 +528,53 @@ def main():
                 rarity_display = rarity if rarity else "(Empty)"
                 print(f"      {rarity_display:<25} : {count:>5} cards")
         
-        # Log success
-        log_run_end(client, run_id, "success",
+        # Determine status based on credit exhaustion
+        status = "partial" if credits_exhausted else "success"
+
+        # Log result
+        log_run_end(client, run_id, status,
                     records_processed=total_prices,
                     details={
-                        "sets": total_sets, 
+                        "sets": total_sets,
                         "prices": total_prices,
                         "skipped": total_skipped,
                         "with_volume": total_with_volume,
                         "total_volume": total_volume,
+                        "credits_exhausted": credits_exhausted,
+                        "credits_remaining": last_credits,
                     })
-        
+
         # Discord notification
-        send_discord_notification(
-            "✅ Fetch Prices - Success",
-            f"{total_prices} prices fetched for {total_sets} sets.\n"
-            f"📈 {total_with_volume} cards with volume ({total_volume} total sales)"
-        )
-        
+        if credits_exhausted:
+            send_discord_notification(
+                "⚠️ Fetch Prices - Partial (Credits Exhausted)",
+                f"{total_prices} prices fetched for {total_sets}/{len(sets)} sets before credits ran out.\n"
+                f"📈 {total_with_volume} cards with volume ({total_volume} total sales)",
+                success=False
+            )
+        else:
+            send_discord_notification(
+                "✅ Fetch Prices - Success",
+                f"{total_prices} prices fetched for {total_sets} sets.\n"
+                f"📈 {total_with_volume} cards with volume ({total_volume} total sales)\n"
+                f"💳 Credits remaining: {last_credits:,}"
+            )
+
         print()
         print_header("📊 SUMMARY")
-        print(f"   Sets processed      : {total_sets}")
+        print(f"   Sets processed      : {total_sets}/{len(sets)}")
         print(f"   Prices fetched      : {total_prices}")
         print(f"   Cards with volume   : {total_with_volume}")
         print(f"   Total sales volume  : {total_volume}")
         print(f"   Cards excluded      : {total_skipped}")
+        print(f"   Credits remaining   : {last_credits:,}")
+        if credits_exhausted:
+            print(f"   ⚠️ STOPPED EARLY: API credits exhausted")
         print()
-        print_success("Script completed successfully!")
+        if credits_exhausted:
+            print("⚠️ Script completed with partial data (credits exhausted)")
+        else:
+            print_success("Script completed successfully!")
         
     except KeyboardInterrupt:
         print("\n\n⚠️ Interrupt detected (Ctrl+C)")

@@ -185,28 +185,69 @@ def get_cards_with_prices(client, price_date: str) -> list:
     return result
 
 
-def get_prices_for_date(client, card_ids: list, price_date: str) -> dict:
-    """Get NM prices for a list of cards at a given date."""
+def get_prices_for_date(client, card_ids: list, price_date: str, use_forward_fill: bool = True) -> dict:
+    """
+    Get NM prices for a list of cards at a given date.
+
+    Uses forward-filling: if a card has no price on the given date,
+    we use the most recent price available (no time limit).
+    This ensures the index always has 100 constituents.
+    Cards with stale prices will be naturally rebalanced at the next monthly rebalancing.
+
+    Args:
+        client: Supabase client
+        card_ids: List of card IDs to get prices for
+        price_date: Target date (YYYY-MM-DD)
+        use_forward_fill: If True, fallback to last known price (default True)
+
+    Returns:
+        dict: {card_id: price}
+    """
     if not card_ids:
         return {}
-    
+
     prices = {}
+    missing_ids = []
     batch_size = 100  # Reduced to avoid query too long errors
-    
+
+    # First pass: get prices for the exact date
     for i in range(0, len(card_ids), batch_size):
         batch_ids = card_ids[i:i + batch_size]
-        
+
         response = client.from_("card_prices_daily") \
             .select("card_id, nm_price, market_price") \
             .eq("price_date", price_date) \
             .in_("card_id", batch_ids) \
             .execute()
-        
+
+        found_ids = set()
         for row in response.data:
             price = row.get("nm_price") or row.get("market_price")
             if price:
                 prices[row["card_id"]] = float(price)
-    
+                found_ids.add(row["card_id"])
+
+        # Track missing cards for forward-fill
+        missing_ids.extend([cid for cid in batch_ids if cid not in found_ids])
+
+    # Second pass: forward-fill missing prices (use last known price)
+    # No time limit - the card will be rebalanced at the next monthly rebalancing
+    if use_forward_fill and missing_ids:
+        for card_id in missing_ids:
+            response = client.from_("card_prices_daily") \
+                .select("nm_price, market_price, price_date") \
+                .eq("card_id", card_id) \
+                .lt("price_date", price_date) \
+                .order("price_date", desc=True) \
+                .limit(1) \
+                .execute()
+
+            if response.data:
+                row = response.data[0]
+                price = row.get("nm_price") or row.get("market_price")
+                if price:
+                    prices[card_id] = float(price)
+
     return prices
 
 
@@ -440,39 +481,45 @@ def get_previous_index_data(client, index_code: str) -> dict:
     }
 
 
-def calculate_index_laspeyres(client, index_code: str, constituents: list, 
+def calculate_index_laspeyres(client, index_code: str, constituents: list,
                                current_date: str) -> tuple:
     """
     Calculate index value using the Laspeyres chain-linking method.
-    
+
     Formula:
     Index_t = Index_{t-1} × [Σ(w_i × P_i,t) / Σ(w_i × P_i,t-1)]
-    
+
     where:
     - w_i = weight of constituent i (fixed at rebalancing)
     - P_i,t = price of constituent i at date t
     - P_i,t-1 = price of constituent i at date t-1
-    
+
+    Uses forward-filling for missing prices (last known price, no time limit).
+
     Returns: (index_value, details_dict)
     """
     # Get previous data
     prev_data = get_previous_index_data(client, index_code)
-    
+
     # First calculation = base 100
     if prev_data is None or not prev_data.get("constituents"):
         return 100.0, {"method": "base", "reason": "first_calculation"}
-    
+
     prev_value = prev_data["value"]
     prev_date = prev_data["date"]
     prev_constituents = prev_data["constituents"]
-    
+
     # If same date, no change
     if prev_date == current_date:
         return prev_value, {"method": "same_date", "reason": "no_change"}
-    
-    # Get current prices for previous constituents
+
+    # Get current prices for previous constituents (with forward-fill)
     card_ids = [c["card_id"] for c in prev_constituents]
-    current_prices = get_prices_for_date(client, card_ids, current_date)
+    current_prices = get_prices_for_date(client, card_ids, current_date, use_forward_fill=True)
+
+    # Also get exact-date prices to count forward-fills
+    exact_prices = get_prices_for_date(client, card_ids, current_date, use_forward_fill=False)
+    forward_filled_count = len(current_prices) - len(exact_prices)
     
     # Calculate Laspeyres ratio
     numerator = 0.0    # Σ(w_i × P_i,t)
@@ -503,19 +550,21 @@ def calculate_index_laspeyres(client, index_code: str, constituents: list,
                 "method": "laspeyres_partial",
                 "matched": matched_count,
                 "total": len(prev_constituents),
+                "forward_filled": forward_filled_count,
                 "ratio": round(ratio, 6),
             }
         else:
             return prev_value, {"method": "fallback", "reason": "no_price_match"}
-    
+
     # Laspeyres calculation
     ratio = numerator / denominator
     new_value = prev_value * ratio
-    
+
     return round(new_value, 4), {
         "method": "laspeyres",
         "matched": matched_count,
         "total": len(prev_constituents),
+        "forward_filled": forward_filled_count,
         "ratio": round(ratio, 6),
         "change_pct": round((ratio - 1) * 100, 4),
     }
@@ -838,6 +887,8 @@ def main():
                 change = calc_details["change_pct"]
                 arrow = "📈" if change > 0 else "📉" if change < 0 else "➡️"
                 print(f"   {arrow} Change: {change:+.2f}%")
+            if calc_details.get("forward_filled", 0) > 0:
+                print(f"   🔄 Forward-filled: {calc_details['forward_filled']} prices (used last known)")
             print(f"   💰 Market cap: ${market_cap:,.2f}")
             
             # Top 5

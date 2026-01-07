@@ -30,7 +30,9 @@ DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # Inception date: when the index started (base value = 100)
 # This is the reference date for all historical calculations
-INCEPTION_DATE = "2025-12-06"
+# Dec 8 is the first day with complete daily price data from PPT API
+# First publication on Dec 10 (J-2 strategy: publish 2 days after data date)
+INCEPTION_DATE = "2025-12-08"
 
 # ============================================================
 # Index Configuration

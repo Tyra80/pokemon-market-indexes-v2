@@ -1,14 +1,16 @@
 """
-Pokemon Market Indexes v2 - Initialize Index (December 6th, 2025)
+Pokemon Market Indexes v2 - Initialize Index (December 8th, 2025)
 =================================================================
 One-time script to initialize the indexes with base value 100.
 
 This script:
-1. Uses price data from 2025-12-06 (first daily data date)
+1. Uses price data from 2025-12-08 (first day with complete daily data from PPT API)
 2. Selects constituents using smart liquidity (B+C+D method)
-3. Uses full history from 2025-10-13 for volume calculation (8 weeks of weekly data)
+3. Uses 8 weekly data points (Oct 13 - Dec 1) + Dec 8 daily for Method D
 4. Sets base index value = 100 for all indexes
 5. Saves constituents and initial index values
+
+First publication: Dec 10, 2025 (J-2 strategy)
 
 Run this ONCE after the backfill is complete.
 
@@ -40,12 +42,13 @@ INCEPTION_MONTH = INCEPTION_DATE[:8] + "01"  # "2025-12-01"
 # Base index value
 BASE_VALUE = 100.0
 
-# Weekly data configuration for Method D at initialization
-# We have ~8 weeks of weekly data (mid-October to early December 2025)
-# Treat these 8 data points as equivalent to 30 days of daily data
+# Method D configuration for initialization
+# We use 8 weekly data points (Oct 13 - Dec 1) + Dec 8 daily data
+# This gives us 9 data points spanning ~57 days
+# Criteria: avg_volume >= 0.5/day AND days_with_volume >= 3
 WEEKLY_DATA_START = "2025-10-13"  # First weekly data point
-WEEKLY_DATA_POINTS = 8            # Number of weekly snapshots
-WEEKLY_MIN_DAYS_WITH_VOLUME = 3   # Minimum weeks with volume (equivalent to 10/30 days)
+WEEKLY_DATA_POINTS = 9            # 8 weekly + 1 daily (Dec 8)
+WEEKLY_MIN_DAYS_WITH_VOLUME = 3   # Minimum data points with volume
 
 
 # =============================================================================
@@ -246,8 +249,8 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
 
         card["ranking_score"] = calculate_ranking_score(card)
 
-    # Filter by Method D using weekly data
-    # Use 8 weekly data points as equivalent to 30 days
+    # Filter by Method D using weekly + daily data
+    # Use 8 weekly data points (Oct 13 - Dec 1) + Dec 8 daily = 9 data points
     eligible = []
     if client and price_date:
         for card in cards:

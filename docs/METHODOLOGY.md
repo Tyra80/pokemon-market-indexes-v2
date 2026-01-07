@@ -36,7 +36,7 @@ A card must meet ALL of these criteria:
 | Rarity | Rare or higher | Excludes Commons/Uncommons with minimal collector value |
 | Minimum price | $0.10 | Filters out bulk cards |
 | Maximum price | $100,000 | Excludes extreme outliers |
-| Set maturity | 60+ days old | Allows prices to stabilize after release |
+| Set maturity | 30+ days old | Allows prices to stabilize after release |
 
 ### Eligible Rarities
 
@@ -80,22 +80,16 @@ Sales and listings are weighted by card condition:
 | Heavily Played | 0.40 | Significant wear |
 | Damaged | 0.20 | Major damage |
 
-#### Entry Thresholds
-
-| Index | Minimum Liquidity to Enter | Minimum to Stay |
-|-------|---------------------------|-----------------|
-| RARE_100 | 0.60 | 0.45 |
-| RARE_500 | 0.45 | 0.35 |
-| RARE_ALL | 0.50 | 0.50 |
-
 #### 30-Day Trading Activity (Method D)
 
-To be included in monthly rebalancing, a card must show **consistent** trading activity:
+To be included in the index, a card must show **consistent** trading activity:
 
 1. **Average volume** >= 0.5 sales/day (about 15 sales per month)
 2. **Trading days** >= 10 days out of 30 with at least one sale
 
 This dual requirement ensures cards aren't just liquid in bursts but trade regularly.
+
+**No minimum liquidity threshold** - The ranking score (price × liquidity) naturally penalizes illiquid cards while allowing high-value cards with moderate liquidity to be included. This better reflects the "TOP 100/500" philosophy.
 
 ### 3. Ranking Score
 
@@ -258,7 +252,7 @@ We use a **J-2 strategy**: prices and volumes are fetched for **2 days ago** to 
 | Expensive illiquid cards dominating | Liquidity-Adjusted Price-Weighted |
 | Missing price data | 70% minimum match requirement |
 | Extreme prices | Min $0.10 / Max $100,000 filters |
-| New set volatility | 60-day maturity requirement |
+| New set volatility | 30-day maturity requirement |
 
 ---
 

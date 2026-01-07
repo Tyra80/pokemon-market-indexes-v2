@@ -41,25 +41,25 @@ INDEX_CONFIG = {
         "type": "card",
         "size": 100,
         "min_rarity": "Rare",
-        "liquidity_threshold_entry": 0.70,     # ~900 eligible -> select top 100
-        "liquidity_threshold_maintain": 0.50,
-        "maturity_days": 60,
+        "maturity_days": 30,
+        # Selection: Top 100 by ranking_score (price × liquidity)
+        # Eligibility: Method D (avg_volume >= 0.5/day AND trading_days >= 10)
     },
     "RARE_500": {
         "type": "card",
         "size": 500,
         "min_rarity": "Rare",
-        "liquidity_threshold_entry": 0.40,     # ~3400 eligible -> select top 500
-        "liquidity_threshold_maintain": 0.30,
-        "maturity_days": 60,
+        "maturity_days": 30,
+        # Selection: Top 500 by ranking_score (price × liquidity)
+        # Eligibility: Method D (avg_volume >= 0.5/day AND trading_days >= 10)
     },
     "RARE_ALL": {
         "type": "card",
-        "size": None,  # No limit
+        "size": None,  # All cards meeting Method D criteria
         "min_rarity": "Rare",
-        "liquidity_threshold_entry": 0.10,     # ~7400 eligible -> select all
-        "liquidity_threshold_maintain": 0.10,
-        "maturity_days": 60,
+        "maturity_days": 30,
+        # Selection: All cards passing Method D filter
+        # Eligibility: Method D (avg_volume >= 0.5/day AND trading_days >= 10)
     },
 }
 

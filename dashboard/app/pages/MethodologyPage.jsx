@@ -126,7 +126,7 @@ const MethodologyPage = () => {
           'Raw Pokemon cards only (no graded items)',
           'Rarity >= Rare (excludes Commons and Uncommons)',
           'Price between $0.10 and $100,000',
-          'Set maturity: 60+ days since release'
+          'Set maturity: 30+ days since release'
         ]} />
         <InfoBox title="Eligible Rarities" items={[
           'Standard Rares: Rare, Holo Rare, Shiny Holo Rare',
@@ -176,16 +176,11 @@ const MethodologyPage = () => {
           </div>
         ))}
 
-        <InfoBox title="Entry Thresholds by Index" items={[
-          'RARE_100: Liquidity score >= 0.60 to enter, >= 0.45 to stay',
-          'RARE_500: Liquidity score >= 0.45 to enter, >= 0.35 to stay',
-          'RARE_ALL: Liquidity score >= 0.50 (strict)'
-        ]} />
-
         <InfoBox title="30-Day Trading Activity (Method D)" items={[
           'Average volume >= 0.5 sales/day (about 15 sales per month)',
           'Trading days >= 10 days out of 30 with at least one sale',
-          'Both criteria must be met for rebalancing eligibility'
+          'Both criteria must be met for index eligibility',
+          'No minimum liquidity threshold - ranking score does the selection'
         ]} />
       </Section>
 

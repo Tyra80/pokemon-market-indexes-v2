@@ -121,40 +121,55 @@ def get_cards_with_prices(client, price_date: str) -> list:
     # Get ALL eligible cards with pagination
     all_cards = []
     offset = 0
-    
+
     while True:
         response = client.from_("cards") \
-            .select("card_id, name, set_id, rarity, is_eligible") \
+            .select("card_id, name, set_id, rarity, is_eligible, release_date") \
             .eq("is_eligible", True) \
             .range(offset, offset + limit - 1) \
             .execute()
-        
+
         if not response.data:
             break
-        
+
         all_cards.extend(response.data)
-        
+
         if len(response.data) < limit:
             break
-        
+
         offset += limit
-    
+
+    # Also get set release dates for cards without release_date
+    set_ids = list(set(c.get("set_id") for c in all_cards if c.get("set_id")))
+    sets_response = client.from_("sets") \
+        .select("set_id, release_date") \
+        .in_("set_id", set_ids) \
+        .execute()
+
+    sets_release_dates = {s["set_id"]: s.get("release_date") for s in (sets_response.data or [])}
+
     # Merge - use nm_price as reference price
     result = []
     for card in all_cards:
         card_id = card["card_id"]
         if card_id in prices_by_card:
             price_data = prices_by_card[card_id]
-            
+
             # Reference price = NM price (Near Mint)
             ref_price = price_data.get("nm_price") or price_data.get("market_price")
-            
+
             if ref_price and ref_price > 0:
+                # Get release date: card's own date, or fallback to set's date
+                card_release_date = card.get("release_date")
+                if not card_release_date:
+                    card_release_date = sets_release_dates.get(card.get("set_id"))
+
                 result.append({
                     "card_id": card_id,
                     "name": card["name"],
                     "set_id": card["set_id"],
                     "rarity": card["rarity"],
+                    "release_date": card_release_date,
                     "price": float(ref_price),  # NM price
                     "market_price": float(price_data.get("market_price") or ref_price),
                     "liquidity_score": float(price_data.get("liquidity_score") or 0),
@@ -166,7 +181,7 @@ def get_cards_with_prices(client, price_date: str) -> list:
                     "dmg_listings": int(price_data.get("dmg_listings") or 0),
                     "total_listings": int(price_data.get("total_listings") or 0),
                 })
-    
+
     return result
 
 
@@ -208,8 +223,59 @@ def filter_outliers(cards: list) -> list:
     """Filter outliers according to defined rules."""
     min_price = OUTLIER_RULES.get("min_price", 0.10)
     max_price = OUTLIER_RULES.get("max_price", 100000)
-    
+
     return [c for c in cards if min_price <= c.get("price", 0) <= max_price]
+
+
+def filter_immature_cards(cards: list, index_code: str, reference_date: str) -> list:
+    """
+    Filter cards from sets that are too recent (not yet mature).
+
+    A set must be released at least `maturity_days` days before the reference_date
+    to be eligible for the index. This prevents newly released cards with
+    potentially unstable prices from affecting the index.
+
+    Args:
+        cards: List of cards to filter
+        index_code: Index code to get maturity_days from config
+        reference_date: Date to check maturity against (YYYY-MM-DD)
+
+    Returns:
+        List of cards that meet the maturity requirement
+    """
+    config = INDEX_CONFIG.get(index_code, {})
+    maturity_days = config.get("maturity_days", 30)
+
+    if maturity_days <= 0:
+        return cards
+
+    ref_date = date.fromisoformat(reference_date)
+    cutoff_date = ref_date - timedelta(days=maturity_days)
+
+    mature_cards = []
+    immature_count = 0
+
+    for card in cards:
+        release_date_str = card.get("release_date")
+        if not release_date_str:
+            # No release date = assume mature (conservative)
+            mature_cards.append(card)
+            continue
+
+        try:
+            release_date = date.fromisoformat(release_date_str)
+            if release_date <= cutoff_date:
+                mature_cards.append(card)
+            else:
+                immature_count += 1
+        except (ValueError, TypeError):
+            # Invalid date format = assume mature
+            mature_cards.append(card)
+
+    if immature_count > 0:
+        print(f"   Filtered {immature_count} immature cards (released after {cutoff_date})")
+
+    return mature_cards
 
 
 def calculate_ranking_score(card: dict) -> float:
@@ -223,17 +289,20 @@ def calculate_ranking_score(card: dict) -> float:
 def select_constituents(cards: list, index_code: str, client=None, price_date: str = None) -> list:
     """
     Select the constituents of an index.
-    
-    Uses B + C + D method for liquidity:
-    - D: Filter by 30-day average volume (if available)
-    - C: Recalculate liquidity with temporal decay
-    - B: Fallback to listings if no volume
+
+    Selection methodology:
+    1. Calculate liquidity score for each card (B+C method)
+    2. Filter by Method D: avg_volume >= 0.5/day AND trading_days >= 10
+    3. Calculate ranking_score = price × liquidity
+    4. Sort by ranking_score and take top N
+
+    No minimum liquidity threshold - the ranking_score naturally penalizes
+    illiquid cards while allowing high-value cards with moderate liquidity.
     """
     config = INDEX_CONFIG.get(index_code, {})
-    
-    # Calculate/recalculate liquidity for each card
+
+    # Calculate/recalculate liquidity for each card (B + C method)
     for card in cards:
-        # If we have client and date, use smart method (B + C)
         if client and price_date:
             smart_score, method = calculate_liquidity_smart(
                 client,
@@ -247,47 +316,39 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
             )
             card["liquidity_score"] = smart_score
             card["liquidity_method"] = method
-        
+
         # Calculate ranking score
         card["ranking_score"] = calculate_ranking_score(card)
-    
-    # Filter by liquidity threshold
-    threshold = config.get("liquidity_threshold_entry", 0.40)
-    eligible = [c for c in cards if c.get("liquidity_score", 0) >= threshold]
-    
-    # Additional filter by 30-day volume stats (Method D)
+
+    # Filter by Method D: 30-day volume requirements
     # Requires BOTH sufficient average volume AND regular trading activity
+    eligible = []
     if client and price_date:
-        eligible_with_volume = []
-        for card in eligible:
+        for card in cards:
             vol_stats = get_volume_stats_30d(client, card["card_id"], price_date)
             card["avg_volume_30d"] = vol_stats['avg_volume']
             card["days_with_volume"] = vol_stats['days_with_volume']
 
-            # Keep card if:
-            # 1. No volume data at all - use listings fallback, can't filter
-            # 2. Has volume data AND meets BOTH criteria:
-            #    a) avg_volume >= MIN_AVG_VOLUME_30D (sufficient total volume)
-            #    b) is_liquid = True (at least 10 days with trading)
             no_volume_data = vol_stats['days_with_volume'] == 0
             has_sufficient_volume = vol_stats['avg_volume'] >= MIN_AVG_VOLUME_30D
             has_regular_trading = vol_stats['is_liquid']  # >= 10 days with volume
 
             if no_volume_data:
-                # No volume data - keep if using listings fallback
+                # No volume data - keep only if using listings fallback
                 if card.get("liquidity_method") == "listings_only":
-                    eligible_with_volume.append(card)
+                    eligible.append(card)
             elif has_sufficient_volume and has_regular_trading:
-                # Has enough volume AND trades regularly
-                eligible_with_volume.append(card)
+                # Passes Method D: enough volume AND trades regularly
+                eligible.append(card)
             # else: exclude - either low volume or irregular trading
+    else:
+        # No client - use all cards (fallback for testing)
+        eligible = cards
 
-        eligible = eligible_with_volume
-    
     # Sort by ranking score descending
     eligible.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
-    
-    # Select top N
+
+    # Select top N (or all for RARE_ALL)
     size = config.get("size")
     if size:
         return eligible[:size]
@@ -709,10 +770,13 @@ def main():
             # Rebalancing if needed
             if need_rebalance:
                 print(f"   🔄 Rebalancing (smart liquidity B+C+D)...")
-                
+
+                # Filter immature cards (sets released too recently)
+                mature_cards = filter_immature_cards(rare_cards.copy(), index_code, price_date)
+
                 # Select constituents with smart liquidity
                 constituents = select_constituents(
-                    rare_cards.copy(), 
+                    mature_cards,
                     index_code,
                     client=client,
                     price_date=price_date

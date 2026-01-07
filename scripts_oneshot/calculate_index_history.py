@@ -36,7 +36,7 @@ from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, MIN_AVG_
 # CONFIGURATION
 # =============================================================================
 
-INCEPTION_DATE = "2025-12-01"
+INCEPTION_DATE = "2025-12-08"
 BASE_VALUE = 100.0
 
 

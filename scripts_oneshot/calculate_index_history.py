@@ -4,9 +4,9 @@ Pokemon Market Indexes v2 - Calculate Index History
 Calculates index values for each day from inception to today.
 
 This script:
-1. Starts from the inception date (2025-12-01, base 100)
+1. Starts from the inception date (2025-12-06, base 100)
 2. Uses Laspeyres chain-linking to calculate each subsequent day
-3. Handles monthly rebalancing automatically (on 1st of each month)
+3. Handles monthly rebalancing automatically (on 3rd of each month with J-2 data)
 
 Run this AFTER initialize_index.py to fill historical values.
 Can also be used to catch up on missing days.
@@ -30,13 +30,12 @@ from scripts.utils import (
     print_header, print_step, print_success, print_error,
     calculate_liquidity_smart, get_volume_stats_30d
 )
-from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, MIN_AVG_VOLUME_30D
+from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, MIN_AVG_VOLUME_30D, INCEPTION_DATE
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-INCEPTION_DATE = "2025-12-08"
 BASE_VALUE = 100.0
 
 
@@ -351,7 +350,7 @@ def do_rebalancing(client, index_code: str, month: str, price_date: str) -> list
 
         if no_volume_data:
             # No volume data - keep if using listings fallback
-            if card.get("liquidity_method") == "listings_fallback":
+            if card.get("liquidity_method") == "listings_only":
                 eligible_with_volume.append(card)
         elif has_sufficient_volume and has_regular_trading:
             # Has enough volume AND trades regularly

@@ -2,8 +2,13 @@
 # Pokemon Market Indexes v2 - Daily Index Calculation
 # ============================================================
 # Calculates index values daily using Laspeyres chain-linking
-# Time: 08:00 Paris (07:00 UTC) - after price fetch
-# 
+# Time: 14:00 Paris (13:00 UTC) - 1 hour after price fetch
+#
+# J-2 STRATEGY:
+# - Uses prices from J-2 (fetched by daily_prices workflow)
+# - Guaranteed complete volume data (24-48h consolidation)
+# - Example: On Jan 7th, index is calculated with Jan 5th prices
+#
 # Features:
 # - Daily index calculation (RARE_100, RARE_500, RARE_ALL)
 # - Automatic monthly rebalancing on 1st of month
@@ -14,7 +19,7 @@ name: Daily Index Calculation
 
 on:
   schedule:
-    - cron: '0 7 * * *'
+    - cron: '0 13 * * *'
   workflow_dispatch:
     inputs:
       force_rebalance:

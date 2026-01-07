@@ -174,8 +174,17 @@ We require **at least 70%** of constituents to have valid prices for the calcula
 
 ### When
 
-- **Monthly**: 1st of each month
+- **Monthly**: 3rd of each month (to use 1st of month prices with J-2 strategy)
 - Weights are fixed for the entire month
+
+### Why the 3rd?
+
+With the J-2 strategy:
+- **1st of month**: We have prices from 2 days ago (still previous month)
+- **2nd of month**: We have prices from the last day of previous month
+- **3rd of month**: We have prices from the **1st of the new month** → Rebalance!
+
+This ensures the new month's constituents are selected based on the first prices of that month.
 
 ### Process
 
@@ -211,11 +220,24 @@ We use **Near Mint (NM) price** as the reference. This is the standard condition
 
 ## Calculation Schedule
 
+### J-2 Strategy (Guaranteed Volume Data)
+
+We use a **J-2 strategy**: prices and volumes are fetched for **2 days ago** to ensure complete sales data.
+
+**Why J-2?**
+- TCGplayer consolidates sales at the end of US day (~08:00 UTC next day)
+- Using J-2 gives 24-48 hours for volume data to fully consolidate
+- This guarantees accurate sales volume for liquidity calculations
+
+**Example**: On January 7th, the index is calculated using January 5th prices.
+
 | Operation | Time (UTC) | Description |
 |-----------|------------|-------------|
-| Price fetch | 06:00 | Get latest prices and sales volume |
-| Index calculation | 07:00 | Calculate daily index values |
-| Rebalancing | 1st of month | Monthly constituent refresh |
+| Price fetch | 12:00 | Fetch J-2 prices and sales volume |
+| Index calculation | 13:00 | Calculate daily index values |
+| Rebalancing | 3rd of month | Monthly constituent refresh (uses 1st of month prices) |
+
+**Important**: The index published on any given day reflects prices from **2 days prior**.
 
 ---
 
@@ -259,5 +281,6 @@ Pokemon Market Indexes are provided for informational and educational purposes o
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.1 | Jan 2026 | J-2 strategy for guaranteed volume data, rebalancing moved to 3rd of month |
 | 2.0 | Jan 2026 | Liquidity-Adjusted Price-Weighted, Method D double criteria (avg + days), 70% matching threshold |
 | 1.0 | Dec 2025 | Initial methodology |

@@ -3,11 +3,14 @@ Pokemon Market Indexes v2 - Fetch Prices
 ========================================
 Fetches card prices from PokemonPriceTracker.
 
-Optimized strategy:
-- Uses /cards?set={name}&fetchAllInSet=true to fetch all cards from a set with prices
-- Uses includeHistory=true&days=2 to get sales volume data
+Strategy J-2 (guaranteed volume data):
+- Fetches prices for J-2 (2 days ago) to ensure volume is fully consolidated
+- TCGPlayer consolidates sales at end of US day (~08:00 UTC next day)
+- J-2 gives 24-48h buffer for complete volume data
+- Uses includeHistory=true&days=1 to get the target date's volume
 - Cost: 2 credits per card (with history)
-- ~13k rare cards = ~26k credits (well under 200k/day Business plan limit)
+
+Example: On January 7th at 12:00 UTC, we fetch January 5th data.
 
 Usage:
     python scripts/fetch_prices.py
@@ -52,7 +55,7 @@ def api_request(endpoint: str, params: dict = None, max_retries: int = 5) -> tup
             response = requests.get(url, headers=HEADERS, params=params, timeout=60)
 
             # Extract credits from headers
-            credits_remaining = int(response.headers.get("X-Credits-Remaining", -1))
+            credits_remaining = int(response.headers.get("X-Ratelimit-Daily-Remaining", -1))
 
             if response.status_code == 429:
                 # No credits left
@@ -103,7 +106,7 @@ def check_api_credits() -> int:
             params={"set": "Base Set", "limit": 1},
             timeout=30
         )
-        credits = int(response.headers.get("X-Credits-Remaining", -1))
+        credits = int(response.headers.get("X-Ratelimit-Daily-Remaining", -1))
         return credits
     except Exception as e:
         print(f"   ⚠️ Could not check credits: {e}")
@@ -156,10 +159,14 @@ def calculate_liquidity_score(prices_data: dict) -> tuple:
 
 def extract_price_data(card_data: dict, price_date: str) -> dict:
     """
-    Extracts price data from a card, including sales volume.
+    Extracts price data from a card, including sales volume for the target date.
 
     Volume is only available if includeHistory=true in the request.
-    Structure: priceHistory.conditions.{condition}.history[-1].volume
+    Structure: priceHistory.conditions.{condition}.history[].volume
+
+    Args:
+        card_data: Card data from API
+        price_date: Target date (YYYY-MM-DD) to extract volume from history
     """
     if not card_data:
         return None
@@ -199,41 +206,55 @@ def extract_price_data(card_data: dict, price_date: str) -> dict:
         total_listings = prices.get("listings", 0) or 0
     
     # =========================================================================
-    # Extract sales volume from priceHistory
+    # Extract sales volume from priceHistory for the target date (J-2)
     # =========================================================================
     nm_volume = None
     lp_volume = None
     mp_volume = None
     hp_volume = None
     dmg_volume = None
+    nm_price_hist = None  # Price from history for target date
+    lp_price_hist = None
+    mp_price_hist = None
+    hp_price_hist = None
+    dmg_price_hist = None
 
     price_history = card_data.get("priceHistory", {})
     if price_history and isinstance(price_history, dict):
         conditions_history = price_history.get("conditions", {})
 
-        # For each condition, get the volume from the most recent entry
+        # For each condition, find the entry matching price_date
         for cond_name, cond_history in conditions_history.items():
             if not isinstance(cond_history, dict):
                 continue
 
             history_list = cond_history.get("history", [])
             if history_list:
-                # Take the most recent entry (last in list)
-                latest = history_list[-1]
-                if isinstance(latest, dict):
-                    vol = latest.get("volume")
-                    if vol is not None:
+                # Find entry matching the target date
+                for entry in history_list:
+                    if not isinstance(entry, dict):
+                        continue
+                    entry_date = entry.get("date", "")[:10]  # Extract YYYY-MM-DD
+                    if entry_date == price_date:
+                        vol = entry.get("volume")
+                        price_hist = entry.get("market")
                         # Assign to correct field
                         if cond_name == "Near Mint":
                             nm_volume = vol
+                            nm_price_hist = price_hist
                         elif cond_name == "Lightly Played":
                             lp_volume = vol
+                            lp_price_hist = price_hist
                         elif cond_name == "Moderately Played":
                             mp_volume = vol
+                            mp_price_hist = price_hist
                         elif cond_name == "Heavily Played":
                             hp_volume = vol
+                            hp_price_hist = price_hist
                         elif cond_name == "Damaged":
                             dmg_volume = vol
+                            dmg_price_hist = price_hist
+                        break  # Found the target date, move to next condition
     
     # =========================================================================
     # Liquidity calculation - Based on weighted volume
@@ -259,26 +280,37 @@ def extract_price_data(card_data: dict, price_date: str) -> dict:
     
     # Last updated
     last_updated = prices.get("lastUpdated")
-    
+
+    # Use historical prices (from target date) when available, fallback to current
+    # This ensures we get the actual price on the target date, not today's price
+    final_nm_price = nm_price_hist if nm_price_hist is not None else (nm_data.get("price") if isinstance(nm_data, dict) else None)
+    final_lp_price = lp_price_hist if lp_price_hist is not None else (lp_data.get("price") if isinstance(lp_data, dict) else None)
+    final_mp_price = mp_price_hist if mp_price_hist is not None else (mp_data.get("price") if isinstance(mp_data, dict) else None)
+    final_hp_price = hp_price_hist if hp_price_hist is not None else (hp_data.get("price") if isinstance(hp_data, dict) else None)
+    final_dmg_price = dmg_price_hist if dmg_price_hist is not None else (dmg_data.get("price") if isinstance(dmg_data, dict) else None)
+
+    # Market price: use NM historical price if available
+    final_market_price = nm_price_hist if nm_price_hist is not None else market_price
+
     return {
         "price_date": price_date,
         "card_id": card_id,
-        "market_price": market_price,
+        "market_price": final_market_price,
         "low_price": prices.get("low"),
         "mid_price": prices.get("mid"),
         "high_price": prices.get("high"),
-        "nm_price": nm_data.get("price") if isinstance(nm_data, dict) else None,
+        "nm_price": final_nm_price,
         "nm_listings": nm_data.get("listings") if isinstance(nm_data, dict) else None,
-        "lp_price": lp_data.get("price") if isinstance(lp_data, dict) else None,
+        "lp_price": final_lp_price,
         "lp_listings": lp_data.get("listings") if isinstance(lp_data, dict) else None,
-        "mp_price": mp_data.get("price") if isinstance(mp_data, dict) else None,
+        "mp_price": final_mp_price,
         "mp_listings": mp_data.get("listings") if isinstance(mp_data, dict) else None,
-        "hp_price": hp_data.get("price") if isinstance(hp_data, dict) else None,
+        "hp_price": final_hp_price,
         "hp_listings": hp_data.get("listings") if isinstance(hp_data, dict) else None,
-        "dmg_price": dmg_data.get("price") if isinstance(dmg_data, dict) else None,
+        "dmg_price": final_dmg_price,
         "dmg_listings": dmg_data.get("listings") if isinstance(dmg_data, dict) else None,
         "total_listings": total_listings,
-        "daily_volume": daily_volume,  # Now = weighted volume
+        "daily_volume": daily_volume,  # Weighted volume
         "nm_volume": nm_volume,
         "lp_volume": lp_volume,
         "mp_volume": mp_volume,
@@ -293,12 +325,12 @@ def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = T
     """
     Fetches all prices for a set with sales volume.
 
-    Uses includeHistory=true + days=1 to get today's volume.
+    Uses includeHistory=true + days=1 to get the target date's volume.
     Cost: 2 credits per card (instead of 1).
 
     Args:
         set_name: Set name
-        price_date: Date string (YYYY-MM-DD) to use for price records
+        price_date: Date string (YYYY-MM-DD) - target date for prices (J-2)
         filter_rarity: If True, only keep cards with rarity >= Rare
 
     Returns:
@@ -309,7 +341,7 @@ def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = T
             "set": set_name,
             "fetchAllInSet": "true",
             "includeHistory": "true",
-            "days": 2,  # Get 2 days to ensure we have consolidated volume data
+            "days": 3,  # Get 3 days to ensure we have the target date (J-2)
         })
 
         if data is None:
@@ -361,16 +393,22 @@ def fetch_prices_for_set(set_name: str, price_date: str, filter_rarity: bool = T
 
 def main():
     from datetime import date, timedelta
-    # Prices fetched at 06:00 UTC are yesterday's closing (US time)
-    today = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # ==========================================================================
+    # J-2 Strategy: Fetch prices from 2 days ago for guaranteed volume data
+    # ==========================================================================
+    # TCGPlayer consolidates sales at end of US day (~08:00 UTC next day)
+    # Using J-2 ensures volume data has had 24-48h to fully consolidate
+    # Example: On Jan 7th 12:00 UTC, we fetch Jan 5th data
+    price_date = (date.today() - timedelta(days=2)).strftime("%Y-%m-%d")
 
     # Minimum credits required to proceed (rough estimate: 13k cards * 2 credits)
     MIN_CREDITS_REQUIRED = 5000
 
-    print_header("💰 Pokemon Market Indexes - Fetch Prices (with Volume)")
-    print(f"📅 Date: {today}")
+    print_header("💰 Pokemon Market Indexes - Fetch Prices (J-2 Strategy)")
+    print(f"📅 Target date: {price_date} (J-2 for guaranteed volume)")
     print(f"🔍 Rarity filter: Enabled (>= Rare)")
-    print(f"📊 Sales volume: Enabled (includeHistory=true)")
+    print(f"📊 Sales volume: Enabled (includeHistory=true, days=1)")
     print(f"💰 API cost: 2 credits/card")
     print()
 
@@ -438,7 +476,7 @@ def main():
 
             print(f"\n   [{i}/{len(sets)}] 📦 {set_name}")
 
-            prices, stats, credits_remaining = fetch_prices_for_set(set_name, today, filter_rarity=True)
+            prices, stats, credits_remaining = fetch_prices_for_set(set_name, price_date, filter_rarity=True)
 
             # Check for credit exhaustion
             if credits_remaining == 0:
@@ -496,17 +534,17 @@ def main():
         
         # Verification
         print_step(5, "Verification")
-        
+
         response = client.from_("card_prices_daily") \
             .select("*", count="exact") \
-            .eq("price_date", today) \
+            .eq("price_date", price_date) \
             .execute()
-        print(f"   Prices today: {response.count}")
+        print(f"   Prices for {price_date}: {response.count}")
 
-        # Top 5 by volume (NEW)
+        # Top 5 by volume
         response = client.from_("card_prices_daily") \
             .select("card_id, market_price, daily_volume, liquidity_score") \
-            .eq("price_date", today) \
+            .eq("price_date", price_date) \
             .not_.is_("daily_volume", "null") \
             .order("daily_volume", desc=True) \
             .limit(5) \

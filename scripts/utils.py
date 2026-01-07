@@ -24,7 +24,7 @@ from config.settings import (
     VOLUME_DECAY_SUM,
     VOLUME_CAP,
     LIQUIDITY_CAP,
-    LIQUIDITY_WEIGHTS_NEW,
+    LIQUIDITY_WEIGHTS,
 )
 
 
@@ -400,9 +400,9 @@ def calculate_liquidity_smart(client, card_id: str, current_date: str,
     """
     from datetime import datetime, timedelta
 
-    W_VOL = LIQUIDITY_WEIGHTS_NEW.get("volume", 0.50)
-    W_LIST = LIQUIDITY_WEIGHTS_NEW.get("listings", 0.30)
-    W_CONS = LIQUIDITY_WEIGHTS_NEW.get("consistency", 0.20)
+    W_VOL = LIQUIDITY_WEIGHTS.get("volume", 0.50)
+    W_LIST = LIQUIDITY_WEIGHTS.get("listings", 0.30)
+    W_CONS = LIQUIDITY_WEIGHTS.get("consistency", 0.20)
 
     # Calculate listings score (always available)
     weighted_listings = (

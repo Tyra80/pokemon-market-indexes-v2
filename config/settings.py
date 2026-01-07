@@ -25,6 +25,14 @@ FRANKFURTER_URL = "https://api.frankfurter.dev/v1"
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 # ============================================================
+# Index Dates
+# ============================================================
+
+# Inception date: when the index started (base value = 100)
+# This is the reference date for all historical calculations
+INCEPTION_DATE = "2025-12-06"
+
+# ============================================================
 # Index Configuration
 # ============================================================
 
@@ -109,15 +117,7 @@ RARE_RARITIES = [
 # Liquidity Configuration
 # ============================================================
 
-# Weights for custom liquidity score calculation
-# Old method (simple)
-LIQUIDITY_WEIGHTS = {
-    "nm_listings": 0.50,      # Number of Near Mint listings
-    "total_listings": 0.30,   # Market depth
-    "multi_condition": 0.20,  # Presence of multiple conditions
-}
-
-# New method: Weights by condition
+# Weights by condition
 # LP cards are less "ideal" but still liquid
 CONDITION_WEIGHTS = {
     "Near Mint": 1.00,        # Reference
@@ -137,7 +137,7 @@ VOLUME_CAP = 10  # 10 sales/day = max score (1.0)
 
 # Liquidity formula weights
 # Based on original methodology: Activity (50%) + Presence (30%) + Consistency (20%)
-LIQUIDITY_WEIGHTS_NEW = {
+LIQUIDITY_WEIGHTS = {
     "volume": 0.50,      # Market activity (sales volume)
     "listings": 0.30,    # Market presence (available supply)
     "consistency": 0.20, # Trading regularity (days with volume / total days)
@@ -158,12 +158,6 @@ VOLUME_DECAY_SUM = sum(VOLUME_DECAY_WEIGHTS.values())  # 3.05
 
 # Minimum threshold for rebalancing eligibility (D)
 MIN_AVG_VOLUME_30D = 0.5  # 0.5 sales/day = ~15 sales/month
-
-# Thresholds for normalization
-LIQUIDITY_NORMALIZATION = {
-    "nm_listings_cap": 20,    # 20+ NM listings = max score
-    "total_listings_cap": 50, # 50+ total listings = max score
-}
 
 # ============================================================
 # API Rate Limits

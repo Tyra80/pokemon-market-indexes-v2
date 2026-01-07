@@ -1,17 +1,24 @@
 # ============================================================
-# Pokemon Market Indexes v2 - Daily Prices
+# Pokemon Market Indexes v2 - Daily Prices (J-2 Strategy)
 # ============================================================
-# Fetches card prices daily with sales volume data
-# Time: 07:00 Paris (06:00 UTC)
+# Fetches card prices for J-2 (2 days ago) with guaranteed volume
+# Time: 13:00 Paris (12:00 UTC)
+#
+# J-2 STRATEGY:
+# - Fetches prices from 2 days ago (not yesterday)
+# - TCGPlayer consolidates sales at end of US day (~08:00 UTC next day)
+# - J-2 ensures volume data has had 24-48h to fully consolidate
+# - Example: On Jan 7th 12:00 UTC, we fetch Jan 5th data
+#
 # Estimated duration: 30-45 minutes
-# API cost: ~2 credits per card (includeHistory=true)
+# API cost: ~2 credits per card (includeHistory=true, days=3)
 # ============================================================
 
 name: Daily Prices
 
 on:
   schedule:
-    - cron: '0 6 * * *'
+    - cron: '0 12 * * *'
   workflow_dispatch:
 
 jobs:

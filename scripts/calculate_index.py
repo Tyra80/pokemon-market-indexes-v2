@@ -46,10 +46,27 @@ def get_latest_price_date(client) -> str:
         .order("price_date", desc=True) \
         .limit(1) \
         .execute()
-    
+
     if response.data:
         return response.data[0]["price_date"]
     return get_today()
+
+
+def get_index_price_date(client) -> str:
+    """
+    Get the date to use for index calculation.
+
+    With the J-2 strategy, fetch_prices.py already fetches J-2 data.
+    So we simply use the latest available date in the database.
+
+    The J-2 guarantee is ensured by the fetch schedule:
+    - fetch_prices.py runs at 12:00 UTC and fetches J-2 data
+    - calculate_index.py runs at 13:00 UTC and uses that data
+
+    Returns:
+        str: Date to use (YYYY-MM-DD) - will be J-2
+    """
+    return get_latest_price_date(client)
 
 
 def get_current_month() -> str:
@@ -258,7 +275,7 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
 
             if no_volume_data:
                 # No volume data - keep if using listings fallback
-                if card.get("liquidity_method") == "listings_fallback":
+                if card.get("liquidity_method") == "listings_only":
                     eligible_with_volume.append(card)
             elif has_sufficient_volume and has_regular_trading:
                 # Has enough volume AND trades regularly
@@ -620,17 +637,29 @@ def main():
     run_id = log_run_start(client, "calculate_index")
     
     try:
-        # Price date
-        print_step(2, "Finding prices")
-        price_date = get_latest_price_date(client)
-        print_success(f"Price date: {price_date}")
+        # Price date - always use J-2 to ensure complete volume data
+        print_step(2, "Finding prices (J-2 for volume guarantee)")
+        price_date = get_index_price_date(client)
+        latest_date = get_latest_price_date(client)
+        print_success(f"Index date: {price_date} (latest available: {latest_date})")
         
         current_month = get_current_month()
         print(f"   Current month: {current_month}")
-        
-        # Check if rebalancing is needed
+
+        # =======================================================================
+        # REBALANCING LOGIC (J-2 aware)
+        # =======================================================================
+        # With J-2 strategy, we need to wait until we have prices from the 1st
+        # of the month before rebalancing. This happens on the 3rd of the month.
+        #
+        # Example for January:
+        # - Jan 1st: price_date = Dec 30th → use December constituents
+        # - Jan 2nd: price_date = Dec 31st → use December constituents
+        # - Jan 3rd: price_date = Jan 1st  → REBALANCE with Jan 1st prices
+        # =======================================================================
+
         need_rebalance = args.rebalance
-        
+
         if not need_rebalance:
             # Check if constituents exist for this month
             response = client.from_("constituents_monthly") \
@@ -638,10 +667,17 @@ def main():
                 .eq("month", current_month) \
                 .limit(1) \
                 .execute()
-            
+
             if response.count == 0:
-                need_rebalance = True
-                print("   → No constituents this month, rebalancing needed")
+                # No constituents for this month yet
+                # Check if price_date is from current month (>= 1st of month)
+                first_of_month = current_month  # e.g., "2026-01-01"
+                if price_date >= first_of_month:
+                    need_rebalance = True
+                    print(f"   → No constituents this month, rebalancing with {price_date} prices")
+                else:
+                    print(f"   → Waiting for {current_month[:7]} prices (current: {price_date})")
+                    print(f"   → Using previous month constituents")
         
         # Load cards with prices
         print_step(3, "Loading data")
@@ -688,8 +724,8 @@ def main():
                 
                 # Stats on liquidity methods used
                 volume_count = sum(1 for c in constituents if c.get("liquidity_method") == "volume_decay")
-                listings_count = sum(1 for c in constituents if c.get("liquidity_method") == "listings_fallback")
-                print(f"   📊 Liquidity: {volume_count} volume_decay | {listings_count} listings_fallback")
+                listings_count = sum(1 for c in constituents if c.get("liquidity_method") == "listings_only")
+                print(f"   📊 Liquidity: {volume_count} volume_decay | {listings_count} listings_only")
                 
                 # Calculate weights
                 constituents = calculate_weights(constituents)

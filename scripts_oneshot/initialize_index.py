@@ -28,15 +28,14 @@ from scripts.utils import (
     print_header, print_step, print_success, print_error,
     calculate_liquidity_smart
 )
-from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES
+from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, INCEPTION_DATE
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-# Index inception date (first date with complete daily data ~10k cards)
-INCEPTION_DATE = "2025-12-08"
-INCEPTION_MONTH = "2025-12-01"  # First day of month for constituents
+# First day of month for constituents (derived from INCEPTION_DATE)
+INCEPTION_MONTH = INCEPTION_DATE[:8] + "01"  # "2025-12-01"
 
 # Base index value
 BASE_VALUE = 100.0

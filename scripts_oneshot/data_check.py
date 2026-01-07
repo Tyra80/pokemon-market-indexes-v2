@@ -6,7 +6,7 @@ Checks price and volume data availability since December 1st, 2025.
 Run this BEFORE initialize_index.py to ensure data is ready.
 
 Usage:
-    python scripts/check_data.py
+    python scripts_oneshot/data_check.py
 """
 
 import sys
@@ -16,12 +16,13 @@ from datetime import datetime, date, timedelta
 # Local imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.utils import get_db_client, print_header, print_step, print_success, print_error
+from config.settings import INCEPTION_DATE
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-START_DATE = "2025-12-01"
+START_DATE = "2025-12-01"  # Start checking from this date (before inception)
 END_DATE = date.today().strftime("%Y-%m-%d")
 
 
@@ -157,22 +158,22 @@ def main():
     print(f"   🃏 Total eligible cards (>= Rare): {eligible_cards}")
     
     # Check for inception date specifically
-    print_step(5, f"Checking inception date ({START_DATE})")
-    
-    if START_DATE in dates_with_prices:
-        inception_data = next((d for d in dates_summary if d["date"] == START_DATE), None)
+    print_step(5, f"Checking inception date ({INCEPTION_DATE})")
+
+    if INCEPTION_DATE in dates_with_prices:
+        inception_data = next((d for d in dates_summary if d["date"] == INCEPTION_DATE), None)
         if inception_data:
             print(f"   ✅ Inception date has data:")
             print(f"      - Total cards: {inception_data['total']}")
             print(f"      - With NM price: {inception_data['with_nm']}")
             print(f"      - With volume: {inception_data['with_volume']}")
-            
+
             if inception_data['with_nm'] >= 1000:
                 print_success(f"Ready to initialize index!")
             else:
                 print_error(f"Not enough cards with NM price (need >= 1000)")
     else:
-        print_error(f"No data for inception date {START_DATE}!")
+        print_error(f"No data for inception date {INCEPTION_DATE}!")
     
     # ==========================================================================
     # CHECK 4: Missing dates
@@ -220,15 +221,15 @@ def main():
     # Ready check
     print()
     ready = (
-        START_DATE in dates_with_prices and
+        INCEPTION_DATE in dates_with_prices and
         eligible_cards >= 100 and
         len(dates_with_prices) >= 1
     )
-    
+
     if ready:
         print_success("✅ DATA IS READY! You can run:")
-        print("   1. python scripts/initialize_index.py")
-        print("   2. python scripts/calculate_index_history.py")
+        print("   1. python scripts_oneshot/initialize_index.py")
+        print("   2. python scripts_oneshot/calculate_index_history.py")
     else:
         print_error("❌ DATA NOT READY - Check issues above")
 

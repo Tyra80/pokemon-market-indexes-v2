@@ -4,7 +4,7 @@ Pokemon Market Indexes v2 - Calculate Index History
 Calculates index values for each day from inception to today.
 
 This script:
-1. Starts from the inception date (2025-12-06, base 100)
+1. Starts from the inception date (2025-12-01, base 100)
 2. Uses Laspeyres chain-linking to calculate each subsequent day
 3. Handles monthly rebalancing automatically (on 1st of each month)
 
@@ -36,7 +36,7 @@ from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, MIN_AVG_
 # CONFIGURATION
 # =============================================================================
 
-INCEPTION_DATE = "2025-12-06"
+INCEPTION_DATE = "2025-12-08"
 BASE_VALUE = 100.0
 
 

@@ -33,24 +33,24 @@ INDEX_CONFIG = {
         "type": "card",
         "size": 100,
         "min_rarity": "Rare",
-        "liquidity_threshold_entry": 0.60,
-        "liquidity_threshold_maintain": 0.45,
+        "liquidity_threshold_entry": 0.70,     # ~900 eligible -> select top 100
+        "liquidity_threshold_maintain": 0.50,
         "maturity_days": 60,
     },
     "RARE_500": {
         "type": "card",
         "size": 500,
         "min_rarity": "Rare",
-        "liquidity_threshold_entry": 0.45,
-        "liquidity_threshold_maintain": 0.35,
+        "liquidity_threshold_entry": 0.40,     # ~3400 eligible -> select top 500
+        "liquidity_threshold_maintain": 0.30,
         "maturity_days": 60,
     },
     "RARE_ALL": {
         "type": "card",
         "size": None,  # No limit
         "min_rarity": "Rare",
-        "liquidity_threshold_entry": 0.50,
-        "liquidity_threshold_maintain": 0.50,
+        "liquidity_threshold_entry": 0.10,     # ~7400 eligible -> select all
+        "liquidity_threshold_maintain": 0.10,
         "maturity_days": 60,
     },
 }
@@ -127,11 +127,21 @@ CONDITION_WEIGHTS = {
     "Damaged": 0.20,          # Very low
 }
 
-# Cap for liquidity normalization
-LIQUIDITY_CAP = 100  # 100 weighted listings = max score (1.0)
+# Cap for liquidity normalization (based on actual market data analysis)
+# Median listings = 72, p90 = 1112 -> cap at 50 for good discrimination
+LIQUIDITY_CAP = 50  # 50 weighted listings = max score (1.0)
 
 # Volume cap for volume-based calculation
-VOLUME_CAP = 50  # 50 sales/day = max score (1.0)
+# Median daily volume = 0, p90 = 3 -> cap at 10 for realistic scoring
+VOLUME_CAP = 10  # 10 sales/day = max score (1.0)
+
+# Liquidity formula weights
+# Based on original methodology: Activity (50%) + Presence (30%) + Consistency (20%)
+LIQUIDITY_WEIGHTS_NEW = {
+    "volume": 0.50,      # Market activity (sales volume)
+    "listings": 0.30,    # Market presence (available supply)
+    "consistency": 0.20, # Trading regularity (days with volume / total days)
+}
 
 # Temporal decay for volume (B + C)
 # More recent = more weight

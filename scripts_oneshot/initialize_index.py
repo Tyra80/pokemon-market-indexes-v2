@@ -4,15 +4,16 @@ Pokemon Market Indexes v2 - Initialize Index (December 6th, 2025)
 One-time script to initialize the indexes with base value 100.
 
 This script:
-1. Uses price data from 2025-12-06 (first date with daily data)
+1. Uses price data from 2025-12-06 (first daily data date)
 2. Selects constituents using smart liquidity (B+C+D method)
-3. Sets base index value = 100 for all indexes
-4. Saves constituents and initial index values
+3. Uses full history from 2025-10-13 for volume calculation (8 weeks of weekly data)
+4. Sets base index value = 100 for all indexes
+5. Saves constituents and initial index values
 
 Run this ONCE after the backfill is complete.
 
 Usage:
-    python scripts/initialize_index.py
+    python scripts_oneshot/initialize_index.py
 """
 
 import sys
@@ -25,16 +26,16 @@ from scripts.utils import (
     get_db_client, batch_upsert,
     log_run_start, log_run_end, send_discord_notification,
     print_header, print_step, print_success, print_error,
-    calculate_liquidity_smart, get_volume_stats_30d
+    calculate_liquidity_smart
 )
-from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, MIN_AVG_VOLUME_30D
+from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
 
-# Index inception date
-INCEPTION_DATE = "2025-12-06"
+# Index inception date (first date with complete daily data ~10k cards)
+INCEPTION_DATE = "2025-12-08"
 INCEPTION_MONTH = "2025-12-01"  # First day of month for constituents
 
 # Base index value
@@ -139,9 +140,24 @@ def calculate_ranking_score(card: dict) -> float:
 
 
 def select_constituents(cards: list, index_code: str, client=None, price_date: str = None) -> list:
-    """Select constituents using B+C+D liquidity method."""
+    """
+    Select constituents using the 50/30/20 liquidity formula.
+
+    The liquidity score already includes:
+    - 50% Volume (market activity)
+    - 30% Listings (market presence)
+    - 20% Consistency (trading regularity)
+
+    No additional Method D filter needed - it's integrated in the score.
+
+    Args:
+        cards: List of cards to select from
+        index_code: Index code (RARE_100, RARE_500, RARE_ALL)
+        client: Supabase client
+        price_date: Date for price data
+    """
     config = INDEX_CONFIG.get(index_code, {})
-    
+
     # Calculate liquidity for each card
     for card in cards:
         if client and price_date:
@@ -157,43 +173,14 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
             )
             card["liquidity_score"] = smart_score
             card["liquidity_method"] = method
-        
+
         card["ranking_score"] = calculate_ranking_score(card)
-    
+
     # Filter by liquidity threshold
     threshold = config.get("liquidity_threshold_entry", 0.40)
     eligible = [c for c in cards if c.get("liquidity_score", 0) >= threshold]
-    
-    # Additional filter by 30-day volume stats (Method D)
-    # Requires BOTH sufficient average volume AND regular trading activity
-    if client and price_date:
-        eligible_with_volume = []
-        for card in eligible:
-            vol_stats = get_volume_stats_30d(client, card["card_id"], price_date)
-            card["avg_volume_30d"] = vol_stats['avg_volume']
-            card["days_with_volume"] = vol_stats['days_with_volume']
 
-            # Keep card if:
-            # 1. No volume data at all - use listings fallback, can't filter
-            # 2. Has volume data AND meets BOTH criteria:
-            #    a) avg_volume >= MIN_AVG_VOLUME_30D (sufficient total volume)
-            #    b) is_liquid = True (at least 10 days with trading)
-            no_volume_data = vol_stats['days_with_volume'] == 0
-            has_sufficient_volume = vol_stats['avg_volume'] >= MIN_AVG_VOLUME_30D
-            has_regular_trading = vol_stats['is_liquid']  # >= 10 days with volume
-
-            if no_volume_data:
-                # No volume data - keep if using listings fallback
-                if card.get("liquidity_method") == "listings_fallback":
-                    eligible_with_volume.append(card)
-            elif has_sufficient_volume and has_regular_trading:
-                # Has enough volume AND trades regularly
-                eligible_with_volume.append(card)
-            # else: exclude - either low volume or irregular trading
-
-        eligible = eligible_with_volume
-    
-    # Sort by ranking score
+    # Sort by ranking score (price × liquidity)
     eligible.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
     
     # Select top N
@@ -288,6 +275,7 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
 def main():
     print_header("🚀 Pokemon Market Indexes - INITIALIZATION")
     print(f"📅 Inception date: {INCEPTION_DATE}")
+    print(f"📊 Liquidity formula: 50% Volume + 30% Listings + 20% Consistency")
     print(f"💯 Base value: {BASE_VALUE}")
     print()
     print("⚠️  This script should be run ONCE after backfill is complete!")
@@ -353,22 +341,22 @@ def main():
             print(f"   {'='*50}")
             
             # Select constituents
-            print(f"   🔄 Selecting constituents (smart liquidity B+C+D)...")
+            print(f"   🔄 Selecting constituents (50/30/20 liquidity formula)...")
             constituents = select_constituents(
                 rare_cards.copy(),
                 index_code,
                 client=client,
                 price_date=INCEPTION_DATE
             )
-            
+
             if not constituents:
                 print(f"   ⚠️ No constituents found!")
                 continue
-            
+
             # Stats
-            volume_count = sum(1 for c in constituents if c.get("liquidity_method") == "volume_decay")
-            listings_count = sum(1 for c in constituents if c.get("liquidity_method") == "listings_fallback")
-            print(f"   📊 Liquidity methods: {volume_count} volume_decay | {listings_count} listings_fallback")
+            combined_count = sum(1 for c in constituents if c.get("liquidity_method") == "combined")
+            listings_only_count = sum(1 for c in constituents if c.get("liquidity_method") == "listings_only")
+            print(f"   📊 Liquidity methods: {combined_count} combined | {listings_only_count} listings_only")
             
             # Calculate weights
             constituents = calculate_weights(constituents)

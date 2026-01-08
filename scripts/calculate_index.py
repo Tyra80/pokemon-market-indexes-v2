@@ -492,7 +492,7 @@ def calculate_index_laspeyres(client, index_code: str, constituents: list,
     where:
     - w_i = weight of constituent i (fixed at rebalancing)
     - P_i,t = price of constituent i at date t
-    - P_i,t-1 = price of constituent i at date t-1
+    - P_i,t-1 = price of constituent i at date t-1 (PREVIOUS DAY, not rebalancing date!)
 
     Uses forward-filling for missing prices (last known price, no time limit).
 
@@ -517,23 +517,28 @@ def calculate_index_laspeyres(client, index_code: str, constituents: list,
     card_ids = [c["card_id"] for c in prev_constituents]
     current_prices = get_prices_for_date(client, card_ids, current_date, use_forward_fill=True)
 
+    # IMPORTANT: Get PREVIOUS DAY prices (not rebalancing prices!)
+    # This is the key fix - we need P_i,t-1 from the actual previous day
+    prev_day_prices = get_prices_for_date(client, card_ids, prev_date, use_forward_fill=True)
+
     # Also get exact-date prices to count forward-fills
     exact_prices = get_prices_for_date(client, card_ids, current_date, use_forward_fill=False)
     forward_filled_count = len(current_prices) - len(exact_prices)
-    
+
     # Calculate Laspeyres ratio
     numerator = 0.0    # Σ(w_i × P_i,t)
     denominator = 0.0  # Σ(w_i × P_i,t-1)
     matched_count = 0
-    
+
     for pc in prev_constituents:
         card_id = pc["card_id"]
         weight = pc["weight"]
-        prev_price = pc["price"]
-        
+        # Use actual previous day price, not the rebalancing price!
+        prev_price = prev_day_prices.get(card_id, 0)
+
         if card_id in current_prices and prev_price > 0:
             current_price = current_prices[card_id]
-            
+
             numerator += weight * current_price
             denominator += weight * prev_price
             matched_count += 1

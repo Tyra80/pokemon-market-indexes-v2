@@ -556,7 +556,10 @@ def main():
                 # Get card name
                 card_resp = client.from_("cards").select("name").eq("card_id", row["card_id"]).execute()
                 name = card_resp.data[0]["name"][:25] if card_resp.data else row["card_id"][:25]
-                print(f"      {name:<25} | ${row['market_price']:>8.2f} | vol={row['daily_volume']:>3} | liq={row['liquidity_score']:.2f}")
+                market_price = row.get('market_price') or 0
+                daily_volume = row.get('daily_volume') or 0
+                liquidity_score = row.get('liquidity_score') or 0
+                print(f"      {name:<25} | ${market_price:>8.2f} | vol={daily_volume:>3} | liq={liquidity_score:.2f}")
         
         # Display skipped rarities
         if skipped_by_rarity:

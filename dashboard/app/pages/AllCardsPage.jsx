@@ -242,6 +242,7 @@ const AllCardsPage = ({ allCards, onCardClick, selectedCard, loading }) => {
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
                   {card.inRare100 && <IndexBadge code="RARE_100" small />}
                   {card.inRare500 && !card.inRare100 && <IndexBadge code="RARE_500" small />}
+                  {card.inRareAll && !card.inRare100 && !card.inRare500 && <IndexBadge code="RARE_ALL" small />}
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

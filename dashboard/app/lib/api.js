@@ -307,17 +307,22 @@ async function fetchCardsByIds(cardIds) {
 async function fetchLatestPricesByCardIds(cardIds) {
   if (!isSupabaseConfigured() || !cardIds || cardIds.length === 0) return null
 
-  // Get the two most recent price dates for 24h change calculation
-  const { data: recentDates, error: dateError } = await supabase
+  // Get the two most recent DISTINCT price dates for 24h change calculation
+  // We fetch more rows and deduplicate since Supabase doesn't support DISTINCT directly
+  const { data: recentDatesRaw, error: dateError } = await supabase
     .from('card_prices_daily')
     .select('price_date')
     .order('price_date', { ascending: false })
-    .limit(2)
+    .limit(100)
 
-  if (dateError || !recentDates || recentDates.length === 0) return null
+  if (dateError || !recentDatesRaw || recentDatesRaw.length === 0) return null
 
-  const latestDate = recentDates[0].price_date
-  const previousDate = recentDates.length > 1 ? recentDates[1].price_date : null
+  // Get unique dates
+  const uniqueDates = [...new Set(recentDatesRaw.map(d => d.price_date))].slice(0, 2)
+  const latestDate = uniqueDates[0]
+  const previousDate = uniqueDates.length > 1 ? uniqueDates[1] : null
+
+  console.log(`Price dates for 24h change: latest=${latestDate}, previous=${previousDate}`)
 
   const BATCH_SIZE = 100
   let latestPrices = []
@@ -492,11 +497,11 @@ export async function getAllEligibleCards() {
   
   currentConstituents.forEach(c => {
     uniqueCardIds.add(c.item_id)
-    
+
     if (!cardIndexes[c.item_id]) {
-      cardIndexes[c.item_id] = { 
-        inRare100: false, 
-        inRare500: false, 
+      cardIndexes[c.item_id] = {
+        inRare100: false,
+        inRare500: false,
         inRareAll: false,
         weight: 0,
         rank: 999
@@ -516,6 +521,11 @@ export async function getAllEligibleCards() {
     }
     if (c.index_code === 'RARE_ALL') {
       cardIndexes[c.item_id].inRareAll = true
+      // Only set weight/rank from RARE_ALL if not already in RARE_100 or RARE_500
+      if (!cardIndexes[c.item_id].inRare100 && !cardIndexes[c.item_id].inRare500) {
+        cardIndexes[c.item_id].weight = c.weight || 0
+        cardIndexes[c.item_id].rank = c.rank || 999
+      }
     }
   })
   

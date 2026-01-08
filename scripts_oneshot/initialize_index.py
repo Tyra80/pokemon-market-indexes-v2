@@ -373,6 +373,11 @@ def save_index_value(client, index_code: str, value_date: str, index_value: floa
 # =============================================================================
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+    args = parser.parse_args()
+
     print_header("🚀 Pokemon Market Indexes - INITIALIZATION")
     print(f"📅 Inception date: {INCEPTION_DATE}")
     print(f"📊 Liquidity formula: 50% Volume + 30% Listings + 20% Consistency")
@@ -380,12 +385,13 @@ def main():
     print()
     print("⚠️  This script should be run ONCE after backfill is complete!")
     print()
-    
+
     # Confirmation
-    confirm = input("Are you sure you want to initialize the indexes? (yes/no): ")
-    if confirm.lower() != "yes":
-        print("Aborted.")
-        return
+    if not args.yes:
+        confirm = input("Are you sure you want to initialize the indexes? (yes/no): ")
+        if confirm.lower() != "yes":
+            print("Aborted.")
+            return
     
     # Connection
     print_step(1, "Connecting to Supabase")

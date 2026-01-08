@@ -28,7 +28,6 @@ from scripts.utils import (
     get_db_client, batch_upsert,
     log_run_start, log_run_end, send_discord_notification,
     print_header, print_step, print_success, print_error,
-    calculate_liquidity_smart, get_volume_stats_30d
 )
 from config.settings import INDEX_CONFIG, RARE_RARITIES, OUTLIER_RULES, INCEPTION_DATE, MIN_AVG_VOLUME_30D
 
@@ -213,15 +212,136 @@ def calculate_ranking_score(card: dict) -> float:
     return card.get("price", 0) * card.get("liquidity_score", 0)
 
 
+def batch_get_volume_stats(client, card_ids: list, start_date: str, end_date: str,
+                           min_days: int = 3, avg_divisor: int = 9) -> dict:
+    """
+    Batch fetch volume stats for all cards in one query.
+    Much faster than individual queries for initialization.
+
+    Returns:
+        dict: {card_id: {'avg_volume': float, 'days_with_volume': int, 'is_liquid': bool, 'total_volume': float}}
+    """
+    from config.settings import CONDITION_WEIGHTS
+
+    # Fetch ALL volume data for the period in one paginated query
+    all_volumes = []
+    offset = 0
+    limit = 1000
+
+    print(f"   📥 Fetching volume data from {start_date} to {end_date}...")
+
+    while True:
+        response = client.from_("card_prices_daily") \
+            .select("card_id, nm_volume, lp_volume, mp_volume, hp_volume, dmg_volume") \
+            .gte("price_date", start_date) \
+            .lte("price_date", end_date) \
+            .range(offset, offset + limit - 1) \
+            .execute()
+
+        if not response.data:
+            break
+
+        all_volumes.extend(response.data)
+
+        if len(response.data) < limit:
+            break
+
+        offset += limit
+
+    print(f"   📊 Processing {len(all_volumes)} volume records...")
+
+    # Group by card_id and calculate stats
+    card_volumes = {}
+    for row in all_volumes:
+        card_id = row["card_id"]
+        if card_id not in card_volumes:
+            card_volumes[card_id] = []
+
+        # Calculate weighted volume for this day
+        nm_vol = (row.get("nm_volume") or 0) * CONDITION_WEIGHTS.get("Near Mint", 1.0)
+        lp_vol = (row.get("lp_volume") or 0) * CONDITION_WEIGHTS.get("Lightly Played", 0.85)
+        mp_vol = (row.get("mp_volume") or 0) * CONDITION_WEIGHTS.get("Moderately Played", 0.7)
+        hp_vol = (row.get("hp_volume") or 0) * CONDITION_WEIGHTS.get("Heavily Played", 0.5)
+        dmg_vol = (row.get("dmg_volume") or 0) * CONDITION_WEIGHTS.get("Damaged", 0.3)
+        weighted_vol = nm_vol + lp_vol + mp_vol + hp_vol + dmg_vol
+
+        card_volumes[card_id].append(weighted_vol)
+
+    # Calculate stats for each card
+    results = {}
+    for card_id in card_ids:
+        volumes = card_volumes.get(card_id, [])
+        total_volume = sum(volumes)
+        days_with_volume = sum(1 for v in volumes if v > 0)
+        avg_volume = total_volume / avg_divisor if avg_divisor > 0 else 0
+        n_days = len(volumes) if volumes else avg_divisor
+
+        results[card_id] = {
+            'avg_volume': avg_volume,
+            'days_with_volume': days_with_volume,
+            'is_liquid': days_with_volume >= min_days,
+            'total_volume': total_volume,
+            'consistency': days_with_volume / n_days if n_days > 0 else 0,
+        }
+
+    return results
+
+
+def calculate_liquidity_batch(cards: list, volume_stats: dict) -> None:
+    """
+    Calculate liquidity scores for all cards using pre-fetched volume data.
+    Much faster than individual queries.
+
+    Modifies cards in place, adding 'liquidity_score' and 'liquidity_method'.
+    """
+    from config.settings import CONDITION_WEIGHTS, LIQUIDITY_CAP, VOLUME_CAP, LIQUIDITY_WEIGHTS
+
+    W_VOL = LIQUIDITY_WEIGHTS.get("volume", 0.50)
+    W_LIST = LIQUIDITY_WEIGHTS.get("listings", 0.30)
+    W_CONS = LIQUIDITY_WEIGHTS.get("consistency", 0.20)
+
+    for card in cards:
+        card_id = card["card_id"]
+        vol_stats = volume_stats.get(card_id, {})
+
+        # Calculate listings score (always available)
+        weighted_listings = (
+            (card.get("nm_listings") or 0) * CONDITION_WEIGHTS.get("Near Mint", 1.0) +
+            (card.get("lp_listings") or 0) * CONDITION_WEIGHTS.get("Lightly Played", 0.85) +
+            (card.get("mp_listings") or 0) * CONDITION_WEIGHTS.get("Moderately Played", 0.7) +
+            (card.get("hp_listings") or 0) * CONDITION_WEIGHTS.get("Heavily Played", 0.5) +
+            (card.get("dmg_listings") or 0) * CONDITION_WEIGHTS.get("Damaged", 0.3)
+        )
+        listings_score = min(weighted_listings / LIQUIDITY_CAP, 1.0)
+
+        # Check if we have volume data
+        avg_volume = vol_stats.get('avg_volume', 0)
+        consistency = vol_stats.get('consistency', 0)
+
+        if avg_volume > 0 or consistency > 0:
+            # Combined method
+            volume_score = min(avg_volume / VOLUME_CAP, 1.0)
+            liquidity_score = (W_VOL * volume_score) + (W_LIST * listings_score) + (W_CONS * consistency)
+            method = "combined"
+        else:
+            # Listings only fallback
+            liquidity_score = listings_score
+            method = "listings_only"
+
+        card["liquidity_score"] = round(liquidity_score, 4)
+        card["liquidity_method"] = method
+
+
 def select_constituents(cards: list, index_code: str, client=None, price_date: str = None) -> list:
     """
     Select constituents for index initialization.
 
     Selection methodology:
-    1. Calculate liquidity score for each card (B+C method)
-    2. Filter by Method D using weekly data (8 weeks treated as 30 days equivalent)
-    3. Calculate ranking_score = price × liquidity
-    4. Sort by ranking_score and take top N
+    1. Batch fetch all volume data (much faster than individual queries)
+    2. Calculate liquidity score for each card (B+C method)
+    3. Filter by Method D
+    4. Calculate ranking_score = price × liquidity
+    5. Sort by ranking_score and take top N
 
     Args:
         cards: List of cards to select from
@@ -231,37 +351,34 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
     """
     config = INDEX_CONFIG.get(index_code, {})
 
-    # Calculate liquidity for each card (B + C method)
-    for card in cards:
-        if client and price_date:
-            smart_score, method = calculate_liquidity_smart(
-                client,
-                card["card_id"],
-                price_date,
-                nm_listings=card.get("nm_listings", 0),
-                lp_listings=card.get("lp_listings", 0),
-                mp_listings=card.get("mp_listings", 0),
-                hp_listings=card.get("hp_listings", 0),
-                dmg_listings=card.get("dmg_listings", 0),
-            )
-            card["liquidity_score"] = smart_score
-            card["liquidity_method"] = method
+    # Batch fetch all volume stats at once (much faster than individual queries)
+    volume_stats = {}
+    if client and price_date:
+        card_ids = [c["card_id"] for c in cards]
+        volume_stats = batch_get_volume_stats(
+            client,
+            card_ids,
+            start_date=WEEKLY_DATA_START,
+            end_date=price_date,
+            min_days=WEEKLY_MIN_DAYS_WITH_VOLUME,
+            avg_divisor=WEEKLY_DATA_POINTS
+        )
 
+        # Calculate liquidity using batch data (no individual queries)
+        print(f"   🔢 Calculating liquidity scores for {len(cards)} cards...")
+        calculate_liquidity_batch(cards, volume_stats)
+
+    # Calculate ranking score for all cards
+    for card in cards:
         card["ranking_score"] = calculate_ranking_score(card)
 
-    # Filter by Method D using weekly + daily data
-    # Use 8 weekly data points (Oct 13 - Dec 1) + Dec 8 daily = 9 data points
+    # Filter by Method D using pre-fetched volume stats
     eligible = []
     if client and price_date:
         for card in cards:
-            vol_stats = get_volume_stats_30d(
-                client,
-                card["card_id"],
-                price_date,
-                lookback_start=WEEKLY_DATA_START,
-                min_days=WEEKLY_MIN_DAYS_WITH_VOLUME,
-                avg_divisor=WEEKLY_DATA_POINTS
-            )
+            vol_stats = volume_stats.get(card["card_id"], {
+                'avg_volume': 0, 'days_with_volume': 0, 'is_liquid': False
+            })
             card["avg_volume_30d"] = vol_stats['avg_volume']
             card["days_with_volume"] = vol_stats['days_with_volume']
 
@@ -406,19 +523,20 @@ def main():
     run_id = log_run_start(client, "initialize_index")
     
     try:
-        # Check if prices exist for inception date
+        # Check if prices exist for inception date (quick check without count)
         print_step(2, "Checking price data")
         response = client.from_("card_prices_daily") \
-            .select("card_id", count="exact") \
+            .select("card_id") \
             .eq("price_date", INCEPTION_DATE) \
+            .limit(1) \
             .execute()
-        
-        if response.count == 0:
+
+        if not response.data:
             print_error(f"No prices found for {INCEPTION_DATE}!")
             print("   Run the backfill first.")
             return
-        
-        print_success(f"{response.count} prices found for {INCEPTION_DATE}")
+
+        print_success(f"Prices found for {INCEPTION_DATE}")
         
         # Load cards with prices
         print_step(3, "Loading card data")

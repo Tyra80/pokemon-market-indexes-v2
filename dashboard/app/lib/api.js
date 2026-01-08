@@ -211,7 +211,7 @@ export async function getConstituents(indexCode) {
   const result = constituents.map(c => {
     const card = cardsMap[c.item_id] || {}
     const price = pricesMap[c.item_id] || {}
-    
+
     return {
       id: c.item_id,
       name: card.name || c.item_id,
@@ -227,8 +227,8 @@ export async function getConstituents(indexCode) {
       isNew: c.is_new,
       tcgplayerId: card.tcgplayer_id,
       pptId: card.ppt_id,
-      sales: price.daily_volume || 0,
-      change: 0,
+      sales: price.monthly_volume || 0,
+      change: price.change_24h || 0,
       // Flag pour l'index courant
       indexCode: indexCode,
       inRare100: indexCode === 'RARE_100',
@@ -236,7 +236,7 @@ export async function getConstituents(indexCode) {
       inRareAll: true
     }
   })
-  
+
   return result
 }
 
@@ -303,43 +303,157 @@ async function fetchCardsByIds(cardIds) {
   return allCards
 }
 
-// Helper: Fetch latest prices by card IDs
+// Helper: Fetch latest prices by card IDs (with forward-fill, 24h change, and 30-day volume)
 async function fetchLatestPricesByCardIds(cardIds) {
   if (!isSupabaseConfigured() || !cardIds || cardIds.length === 0) return null
-  
-  // Get latest price date
-  const { data: latestDate, error: dateError } = await supabase
+
+  // Get the two most recent price dates for 24h change calculation
+  const { data: recentDates, error: dateError } = await supabase
     .from('card_prices_daily')
     .select('price_date')
     .order('price_date', { ascending: false })
-    .limit(1)
-    .single()
-  
-  if (dateError || !latestDate) return null
-  
+    .limit(2)
+
+  if (dateError || !recentDates || recentDates.length === 0) return null
+
+  const latestDate = recentDates[0].price_date
+  const previousDate = recentDates.length > 1 ? recentDates[1].price_date : null
+
   const BATCH_SIZE = 100
-  let allPrices = []
-  
+  let latestPrices = []
+  let previousPrices = []
+
+  // First pass: fetch prices for the latest date
   for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
     const batchIds = cardIds.slice(i, i + BATCH_SIZE)
-    
+
     const { data, error } = await supabase
       .from('card_prices_daily')
       .select('card_id, price_date, market_price, nm_price, daily_volume')
-      .eq('price_date', latestDate.price_date)
+      .eq('price_date', latestDate)
       .in('card_id', batchIds)
-    
+
     if (error) {
       console.error('Error fetching prices batch:', error)
       continue
     }
-    
+
     if (data) {
-      allPrices = allPrices.concat(data)
+      latestPrices = latestPrices.concat(data)
     }
   }
-  
-  return allPrices
+
+  // Fetch previous day prices for 24h change calculation
+  if (previousDate) {
+    for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
+      const batchIds = cardIds.slice(i, i + BATCH_SIZE)
+
+      const { data, error } = await supabase
+        .from('card_prices_daily')
+        .select('card_id, market_price, nm_price')
+        .eq('price_date', previousDate)
+        .in('card_id', batchIds)
+
+      if (error) {
+        console.error('Error fetching previous prices batch:', error)
+        continue
+      }
+
+      if (data) {
+        previousPrices = previousPrices.concat(data)
+      }
+    }
+  }
+
+  // Create previous prices map
+  const previousPricesMap = {}
+  previousPrices.forEach(p => {
+    previousPricesMap[p.card_id] = parseFloat(p.market_price || p.nm_price || 0)
+  })
+
+  // Forward-fill missing cards from latest date
+  const foundIds = new Set(latestPrices.map(p => p.card_id))
+  const missingIds = cardIds.filter(id => !foundIds.has(id))
+
+  if (missingIds.length > 0) {
+    console.log(`Forward-filling prices for ${missingIds.length} cards missing from latest date`)
+
+    for (let i = 0; i < missingIds.length; i += BATCH_SIZE) {
+      const batchIds = missingIds.slice(i, i + BATCH_SIZE)
+
+      const { data, error } = await supabase
+        .from('card_prices_daily')
+        .select('card_id, price_date, market_price, nm_price, daily_volume')
+        .in('card_id', batchIds)
+        .order('price_date', { ascending: false })
+
+      if (error) {
+        console.error('Error fetching forward-fill prices:', error)
+        continue
+      }
+
+      if (data) {
+        const seenCards = new Set()
+        data.forEach(p => {
+          if (!seenCards.has(p.card_id)) {
+            seenCards.add(p.card_id)
+            latestPrices.push(p)
+          }
+        })
+      }
+    }
+  }
+
+  // Fetch 30-day volume for each card
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 32) // A bit more to account for D-2
+  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+
+  let volumeData = []
+  for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
+    const batchIds = cardIds.slice(i, i + BATCH_SIZE)
+
+    const { data, error } = await supabase
+      .from('card_prices_daily')
+      .select('card_id, daily_volume')
+      .in('card_id', batchIds)
+      .gte('price_date', thirtyDaysAgoStr)
+
+    if (error) {
+      console.error('Error fetching volume data:', error)
+      continue
+    }
+
+    if (data) {
+      volumeData = volumeData.concat(data)
+    }
+  }
+
+  // Aggregate 30-day volume per card
+  const volumeMap = {}
+  volumeData.forEach(v => {
+    if (!volumeMap[v.card_id]) {
+      volumeMap[v.card_id] = 0
+    }
+    volumeMap[v.card_id] += parseFloat(v.daily_volume || 0)
+  })
+
+  // Enhance latest prices with change and monthly volume
+  return latestPrices.map(p => {
+    const currentPrice = parseFloat(p.market_price || p.nm_price || 0)
+    const prevPrice = previousPricesMap[p.card_id]
+    let change = 0
+
+    if (prevPrice && prevPrice > 0 && currentPrice > 0) {
+      change = ((currentPrice - prevPrice) / prevPrice) * 100
+    }
+
+    return {
+      ...p,
+      change_24h: change,
+      monthly_volume: Math.round(volumeMap[p.card_id] || 0)
+    }
+  })
 }
 
 // ============================================================================
@@ -433,7 +547,7 @@ export async function getAllEligibleCards() {
   const result = cards.map(card => {
     const price = pricesMap[card.card_id] || {}
     const indexes = cardIndexes[card.card_id] || { inRare100: false, inRare500: false, inRareAll: false, weight: 0, rank: 999 }
-    
+
     return {
       id: card.card_id,
       name: card.name || card.card_id,
@@ -444,7 +558,8 @@ export async function getAllEligibleCards() {
       price: parseFloat(price.market_price || price.nm_price || 0),
       tcgplayerId: card.tcgplayer_id,
       pptId: card.ppt_id,
-      change: 0,
+      change: price.change_24h || 0,
+      sales: price.monthly_volume || 0,
       weight: indexes.weight,
       rank: indexes.rank,
       ...indexes

@@ -218,14 +218,14 @@ const MethodologyPage = () => {
         </p>
       </Section>
 
-      <Section title="Data Schedule (J-2 Strategy)">
+      <Section title="Data Schedule (D-2 Strategy)">
         <p style={{ marginBottom: '16px' }}>
-          We use a <strong>J-2 strategy</strong>: prices and volumes are fetched for 2 days ago
+          We use a <strong>D-2 strategy</strong>: prices and volumes are fetched for 2 days ago
           to ensure complete sales data.
         </p>
-        <InfoBox title="Why J-2?" items={[
+        <InfoBox title="Why D-2?" items={[
           'TCGplayer consolidates sales at end of US day (~08:00 UTC next day)',
-          'Using J-2 gives 24-48 hours for volume data to fully consolidate',
+          'Using D-2 gives 24-48 hours for volume data to fully consolidate',
           'This guarantees accurate sales volume for liquidity calculations'
         ]} />
         <p style={{ marginTop: '16px' }}>
@@ -246,7 +246,7 @@ const MethodologyPage = () => {
 
             <div>Price fetch</div>
             <div>12:00</div>
-            <div>Fetch J-2 prices and sales volume</div>
+            <div>Fetch D-2 prices and sales volume</div>
 
             <div>Index calculation</div>
             <div>13:00</div>
@@ -262,11 +262,11 @@ const MethodologyPage = () => {
       <Section title="Rebalancing">
         <InfoBox title="Monthly Rebalancing" items={[
           'Occurs on the 3rd of each month',
-          'Uses 1st of month prices (available on 3rd with J-2)',
+          'Uses 1st of month prices (available on 3rd with D-2)',
           'Weights are fixed for the entire month'
         ]} />
         <p style={{ marginTop: '12px' }}>
-          <strong>Why the 3rd?</strong> With J-2 strategy, on the 3rd we have prices from the 1st,
+          <strong>Why the 3rd?</strong> With D-2 strategy, on the 3rd we have prices from the 1st,
           allowing us to rebalance with the new month's first prices.
         </p>
       </Section>

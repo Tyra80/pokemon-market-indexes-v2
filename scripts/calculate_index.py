@@ -525,53 +525,55 @@ def calculate_index_laspeyres(client, index_code: str, constituents: list,
     exact_prices = get_prices_for_date(client, card_ids, current_date, use_forward_fill=False)
     forward_filled_count = len(current_prices) - len(exact_prices)
 
-    # Calculate Laspeyres ratio
-    numerator = 0.0    # Σ(w_i × P_i,t)
-    denominator = 0.0  # Σ(w_i × P_i,t-1)
+    # Calculate Laspeyres ratio using Decimal for precision
+    # This prevents floating-point accumulation errors over many calculations
+    numerator = Decimal('0')    # Σ(w_i × P_i,t)
+    denominator = Decimal('0')  # Σ(w_i × P_i,t-1)
     matched_count = 0
 
     for pc in prev_constituents:
         card_id = pc["card_id"]
-        weight = pc["weight"]
+        weight = Decimal(str(pc["weight"]))
         # Use actual previous day price, not the rebalancing price!
         prev_price = prev_day_prices.get(card_id, 0)
 
         if card_id in current_prices and prev_price > 0:
-            current_price = current_prices[card_id]
+            current_price = Decimal(str(current_prices[card_id]))
+            prev_price_dec = Decimal(str(prev_price))
 
             numerator += weight * current_price
-            denominator += weight * prev_price
+            denominator += weight * prev_price_dec
             matched_count += 1
-    
+
     # Verification: require at least 70% of constituents to have valid prices
     # This ensures the index is representative and reduces noise
     if denominator == 0 or matched_count < len(prev_constituents) * 0.7:
         # Not enough data for reliable calculation
         # Fallback: use average of available variations
-        if matched_count > 0:
-            ratio = numerator / denominator if denominator > 0 else 1.0
-            new_value = prev_value * ratio
-            return round(new_value, 4), {
+        if matched_count > 0 and denominator > 0:
+            ratio = numerator / denominator
+            new_value = Decimal(str(prev_value)) * ratio
+            return float(new_value.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)), {
                 "method": "laspeyres_partial",
                 "matched": matched_count,
                 "total": len(prev_constituents),
                 "forward_filled": forward_filled_count,
-                "ratio": round(ratio, 6),
+                "ratio": float(ratio.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)),
             }
         else:
             return prev_value, {"method": "fallback", "reason": "no_price_match"}
 
-    # Laspeyres calculation
+    # Laspeyres calculation with Decimal precision
     ratio = numerator / denominator
-    new_value = prev_value * ratio
+    new_value = Decimal(str(prev_value)) * ratio
 
-    return round(new_value, 4), {
+    return float(new_value.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)), {
         "method": "laspeyres",
         "matched": matched_count,
         "total": len(prev_constituents),
         "forward_filled": forward_filled_count,
-        "ratio": round(ratio, 6),
-        "change_pct": round((ratio - 1) * 100, 4),
+        "ratio": float(ratio.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)),
+        "change_pct": float(((ratio - 1) * 100).quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)),
     }
 
 

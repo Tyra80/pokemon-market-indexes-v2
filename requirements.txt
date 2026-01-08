@@ -13,3 +13,9 @@ postgrest>=0.16.0
 
 # Date handling
 python-dateutil>=2.8.0
+
+# Retry with exponential backoff
+tenacity>=8.2.0
+
+# Testing (dev)
+pytest>=7.4.0

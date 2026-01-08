@@ -81,9 +81,11 @@ CREATE TABLE IF NOT EXISTS cards (
     set_id TEXT REFERENCES sets(set_id),
     card_number TEXT,
     rarity TEXT,
+    release_date DATE,
     tcgplayer_id TEXT,
     ppt_id TEXT,
     image_url TEXT,
+    is_eligible BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -173,6 +175,7 @@ CREATE TABLE IF NOT EXISTS run_logs (
 -- Create indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_cards_set ON cards(set_id);
 CREATE INDEX IF NOT EXISTS idx_cards_rarity ON cards(rarity);
+CREATE INDEX IF NOT EXISTS idx_cards_eligible ON cards(is_eligible) WHERE is_eligible = true;
 CREATE INDEX IF NOT EXISTS idx_prices_date ON card_prices_daily(price_date);
 CREATE INDEX IF NOT EXISTS idx_prices_card ON card_prices_daily(card_id);
 CREATE INDEX IF NOT EXISTS idx_index_values_code ON index_values_daily(index_code);
@@ -395,8 +398,8 @@ Workflows will run automatically:
 | Workflow | Frequency | Time (UTC) |
 |----------|-----------|------------|
 | FX Rates | Daily | 16:00 |
-| Prices | Daily | 06:00 |
-| Index Calculation | Daily | 07:00 |
+| Prices | Daily | 12:00 |
+| Index Calculation | Daily | 13:00 |
 | Cards Update | Weekly (Sunday) | 03:00 |
 | Keepalive | Every 5 days | 12:00 |
 

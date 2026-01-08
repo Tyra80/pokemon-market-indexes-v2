@@ -4,7 +4,7 @@ Pokemon Market Indexes v2 - Calculate Index History
 Calculates index values for each day from inception to today.
 
 This script:
-1. Starts from the inception date (2025-12-06, base 100)
+1. Starts from the inception date (2025-12-08, base 100)
 2. Uses Laspeyres chain-linking to calculate each subsequent day
 3. Handles monthly rebalancing automatically (on 3rd of each month with J-2 data)
 
@@ -326,15 +326,11 @@ def do_rebalancing(client, index_code: str, month: str, price_date: str) -> list
         card["liquidity_score"] = smart_score
         card["liquidity_method"] = method
         card["ranking_score"] = card["price"] * card["liquidity_score"]
-    
-    # Filter by liquidity threshold
-    threshold = config.get("liquidity_threshold_entry", 0.40)
-    eligible = [c for c in cards if c.get("liquidity_score", 0) >= threshold]
 
-    # Additional filter by 30-day volume stats (Method D)
+    # Filter by Method D (30-day volume stats)
     # Requires BOTH sufficient average volume AND regular trading activity
-    eligible_with_volume = []
-    for card in eligible:
+    eligible = []
+    for card in cards:
         vol_stats = get_volume_stats_30d(client, card["card_id"], price_date)
         card["avg_volume_30d"] = vol_stats['avg_volume']
         card["days_with_volume"] = vol_stats['days_with_volume']
@@ -351,13 +347,11 @@ def do_rebalancing(client, index_code: str, month: str, price_date: str) -> list
         if no_volume_data:
             # No volume data - keep if using listings fallback
             if card.get("liquidity_method") == "listings_only":
-                eligible_with_volume.append(card)
+                eligible.append(card)
         elif has_sufficient_volume and has_regular_trading:
             # Has enough volume AND trades regularly
-            eligible_with_volume.append(card)
+            eligible.append(card)
         # else: exclude - either low volume or irregular trading
-
-    eligible = eligible_with_volume
 
     # Sort by ranking score
     eligible.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)

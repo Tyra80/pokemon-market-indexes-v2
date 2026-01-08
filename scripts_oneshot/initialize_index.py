@@ -258,11 +258,11 @@ def batch_get_volume_stats(client, card_ids: list, start_date: str, end_date: st
             card_volumes[card_id] = []
 
         # Calculate weighted volume for this day
-        nm_vol = (row.get("nm_volume") or 0) * CONDITION_WEIGHTS.get("Near Mint", 1.0)
-        lp_vol = (row.get("lp_volume") or 0) * CONDITION_WEIGHTS.get("Lightly Played", 0.85)
-        mp_vol = (row.get("mp_volume") or 0) * CONDITION_WEIGHTS.get("Moderately Played", 0.7)
-        hp_vol = (row.get("hp_volume") or 0) * CONDITION_WEIGHTS.get("Heavily Played", 0.5)
-        dmg_vol = (row.get("dmg_volume") or 0) * CONDITION_WEIGHTS.get("Damaged", 0.3)
+        nm_vol = (row.get("nm_volume") or 0) * CONDITION_WEIGHTS["Near Mint"]
+        lp_vol = (row.get("lp_volume") or 0) * CONDITION_WEIGHTS["Lightly Played"]
+        mp_vol = (row.get("mp_volume") or 0) * CONDITION_WEIGHTS["Moderately Played"]
+        hp_vol = (row.get("hp_volume") or 0) * CONDITION_WEIGHTS["Heavily Played"]
+        dmg_vol = (row.get("dmg_volume") or 0) * CONDITION_WEIGHTS["Damaged"]
         weighted_vol = nm_vol + lp_vol + mp_vol + hp_vol + dmg_vol
 
         card_volumes[card_id].append(weighted_vol)
@@ -306,11 +306,11 @@ def calculate_liquidity_batch(cards: list, volume_stats: dict) -> None:
 
         # Calculate listings score (always available)
         weighted_listings = (
-            (card.get("nm_listings") or 0) * CONDITION_WEIGHTS.get("Near Mint", 1.0) +
-            (card.get("lp_listings") or 0) * CONDITION_WEIGHTS.get("Lightly Played", 0.85) +
-            (card.get("mp_listings") or 0) * CONDITION_WEIGHTS.get("Moderately Played", 0.7) +
-            (card.get("hp_listings") or 0) * CONDITION_WEIGHTS.get("Heavily Played", 0.5) +
-            (card.get("dmg_listings") or 0) * CONDITION_WEIGHTS.get("Damaged", 0.3)
+            (card.get("nm_listings") or 0) * CONDITION_WEIGHTS["Near Mint"] +
+            (card.get("lp_listings") or 0) * CONDITION_WEIGHTS["Lightly Played"] +
+            (card.get("mp_listings") or 0) * CONDITION_WEIGHTS["Moderately Played"] +
+            (card.get("hp_listings") or 0) * CONDITION_WEIGHTS["Heavily Played"] +
+            (card.get("dmg_listings") or 0) * CONDITION_WEIGHTS["Damaged"]
         )
         listings_score = min(weighted_listings / LIQUIDITY_CAP, 1.0)
 

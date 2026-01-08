@@ -4,11 +4,15 @@ Pokemon Market Indexes v2 - Utilities
 Utility functions shared by all scripts.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import requests
 from datetime import datetime, date, timedelta, timezone
+from typing import Optional, Any
 from postgrest import SyncPostgrestClient
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Add parent folder to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,6 +29,7 @@ from config.settings import (
     VOLUME_CAP,
     LIQUIDITY_CAP,
     LIQUIDITY_WEIGHTS,
+    validate_config,
 )
 
 
@@ -35,16 +40,18 @@ from config.settings import (
 def get_db_client() -> SyncPostgrestClient:
     """
     Creates and returns a Supabase client.
-    
+
+    Validates configuration before connecting.
+
     Returns:
         SyncPostgrestClient: Client connected to Supabase
-    
+
     Raises:
         ValueError: If credentials are missing
     """
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise ValueError("SUPABASE_URL or SUPABASE_KEY missing in .env")
-    
+    # Validate all config before proceeding
+    validate_config()
+
     return SyncPostgrestClient(
         base_url=f"{SUPABASE_URL}/rest/v1",
         headers={
@@ -58,29 +65,35 @@ def get_db_client() -> SyncPostgrestClient:
 # PokemonPriceTracker API Client
 # ============================================================
 
-def ppt_request(endpoint: str, params: dict = None) -> dict:
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((requests.exceptions.Timeout, requests.exceptions.ConnectionError)),
+    reraise=True
+)
+def ppt_request(endpoint: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """
-    Makes a request to the PokemonPriceTracker API.
-    
+    Makes a request to the PokemonPriceTracker API with automatic retry.
+
     Args:
         endpoint: API endpoint (e.g.: "/v2/cards")
         params: Request parameters
-    
+
     Returns:
         dict: JSON response
-    
+
     Raises:
-        requests.HTTPError: If the request fails
+        requests.HTTPError: If the request fails after retries
     """
     url = f"{PPT_BASE_URL}{endpoint}"
     headers = {
         "Authorization": f"Bearer {PPT_API_KEY}",
         "X-API-Key": PPT_API_KEY,
     }
-    
+
     response = requests.get(url, headers=headers, params=params, timeout=30)
     response.raise_for_status()
-    
+
     return response.json()
 
 
@@ -88,8 +101,8 @@ def ppt_request(endpoint: str, params: dict = None) -> dict:
 # Database Pagination Helper
 # ============================================================
 
-def fetch_all_paginated(client, table: str, select: str = "*", 
-                        filters: dict = None, page_size: int = 1000) -> list:
+def fetch_all_paginated(client: SyncPostgrestClient, table: str, select: str = "*",
+                        filters: Optional[dict[str, Any]] = None, page_size: int = 1000) -> list[dict[str, Any]]:
     """
     Fetches all rows from a table with pagination.
     
@@ -133,8 +146,8 @@ def fetch_all_paginated(client, table: str, select: str = "*",
 # Batch Insert Helper
 # ============================================================
 
-def batch_upsert(client, table: str, rows: list, 
-                 batch_size: int = 500, on_conflict: str = None) -> dict:
+def batch_upsert(client: SyncPostgrestClient, table: str, rows: list[dict[str, Any]],
+                 batch_size: int = 500, on_conflict: Optional[str] = None) -> dict[str, int]:
     """
     Inserts rows in batches with upsert.
     
@@ -179,7 +192,7 @@ def batch_upsert(client, table: str, rows: list,
 # Run Logging
 # ============================================================
 
-def log_run_start(client, run_type: str) -> int:
+def log_run_start(client: SyncPostgrestClient, run_type: str) -> Optional[int]:
     """
     Records the start of a run.
     
@@ -196,9 +209,9 @@ def log_run_start(client, run_type: str) -> int:
         return None
 
 
-def log_run_end(client, run_id: int, status: str, 
+def log_run_end(client: SyncPostgrestClient, run_id: Optional[int], status: str,
                 records_processed: int = 0, records_failed: int = 0,
-                error_message: str = None, details: dict = None):
+                error_message: Optional[str] = None, details: Optional[dict[str, Any]] = None) -> None:
     """
     Records the end of a run.
     """
@@ -226,8 +239,8 @@ def log_run_end(client, run_id: int, status: str,
 # Discord Notifications
 # ============================================================
 
-def send_discord_notification(title: str, description: str, 
-                              color: int = 5763719, success: bool = True):
+def send_discord_notification(title: str, description: str,
+                              color: int = 5763719, success: bool = True) -> None:
     """
     Sends a Discord notification.
     
@@ -322,64 +335,13 @@ def print_progress(current: int, total: int, prefix: str = ""):
 
 
 # ============================================================
-# Liquidity Calculation (B + C + D)
+# Liquidity Calculation (Smart 50/30/20 + Method D)
 # ============================================================
 
-def calculate_liquidity_from_listings(nm_listings: int, lp_listings: int = 0, 
-                                       mp_listings: int = 0, hp_listings: int = 0,
-                                       dmg_listings: int = 0) -> float:
-    """
-    Calculates liquidity score based on listings (Method B - fallback).
-    
-    Formula: weighted_listings / LIQUIDITY_CAP
-    """
-    weighted = (
-        (nm_listings or 0) * CONDITION_WEIGHTS.get("Near Mint", 1.0) +
-        (lp_listings or 0) * CONDITION_WEIGHTS.get("Lightly Played", 0.8) +
-        (mp_listings or 0) * CONDITION_WEIGHTS.get("Moderately Played", 0.6) +
-        (hp_listings or 0) * CONDITION_WEIGHTS.get("Heavily Played", 0.4) +
-        (dmg_listings or 0) * CONDITION_WEIGHTS.get("Damaged", 0.2)
-    )
-    
-    return min(weighted / LIQUIDITY_CAP, 1.0)
-
-
-def calculate_liquidity_from_volume(volumes: list) -> float:
-    """
-    Calculates liquidity score with temporal decay (Method C).
-    
-    Args:
-        volumes: List of volumes for the last 7 days [day0, day-1, day-2, ..., day-6]
-                 May contain None for missing days
-    
-    Returns:
-        float: Liquidity score between 0 and 1
-    """
-    if not volumes:
-        return 0.0
-    
-    weighted_volume = 0.0
-    weight_sum = 0.0
-    
-    for i, vol in enumerate(volumes[:7]):  # Max 7 days
-        if vol is not None and vol > 0:
-            weight = VOLUME_DECAY_WEIGHTS.get(i, 0.05)
-            weighted_volume += vol * weight
-            weight_sum += weight
-    
-    if weight_sum == 0:
-        return 0.0
-    
-    # Normalize by sum of weights used and cap
-    normalized_volume = weighted_volume / weight_sum
-    
-    return min(normalized_volume / VOLUME_CAP, 1.0)
-
-
-def calculate_liquidity_smart(client, card_id: str, current_date: str,
+def calculate_liquidity_smart(client: SyncPostgrestClient, card_id: str, current_date: str,
                                nm_listings: int = 0, lp_listings: int = 0,
                                mp_listings: int = 0, hp_listings: int = 0,
-                               dmg_listings: int = 0) -> tuple:
+                               dmg_listings: int = 0) -> tuple[float, str]:
     """
     Calculates liquidity score using the 50/30/20 formula.
 
@@ -469,9 +431,9 @@ def calculate_liquidity_smart(client, card_id: str, current_date: str,
     return round(final_score, 4), "listings_only"
 
 
-def get_volume_stats_30d(client, card_id: str, current_date: str,
-                         lookback_start: str = None, min_days: int = None,
-                         avg_divisor: int = None) -> dict:
+def get_volume_stats_30d(client: SyncPostgrestClient, card_id: str, current_date: str,
+                         lookback_start: Optional[str] = None, min_days: Optional[int] = None,
+                         avg_divisor: Optional[int] = None) -> dict[str, Any]:
     """
     Calculates volume statistics over a period (Method D - for rebalancing).
 
@@ -569,7 +531,7 @@ def get_volume_stats_30d(client, card_id: str, current_date: str,
         }
 
 
-def get_avg_volume_30d(client, card_id: str, current_date: str) -> float:
+def get_avg_volume_30d(client: SyncPostgrestClient, card_id: str, current_date: str) -> float:
     """
     Backwards-compatible wrapper for get_volume_stats_30d.
     Returns just the average volume.

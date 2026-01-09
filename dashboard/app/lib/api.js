@@ -308,19 +308,30 @@ async function fetchLatestPricesByCardIds(cardIds) {
   if (!isSupabaseConfigured() || !cardIds || cardIds.length === 0) return null
 
   // Get the two most recent DISTINCT price dates for 24h change calculation
-  // We fetch more rows and deduplicate since Supabase doesn't support DISTINCT directly
-  const { data: recentDatesRaw, error: dateError } = await supabase
-    .from('card_prices_daily')
-    .select('price_date')
-    .order('price_date', { ascending: false })
-    .limit(100)
+  // We paginate until we find at least 2 distinct dates (since each date has thousands of cards)
+  const uniqueDates = new Set()
+  let offset = 0
+  const PAGE_SIZE = 1000
 
-  if (dateError || !recentDatesRaw || recentDatesRaw.length === 0) return null
+  while (uniqueDates.size < 2 && offset < 50000) {
+    const { data: batch, error } = await supabase
+      .from('card_prices_daily')
+      .select('price_date')
+      .order('price_date', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1)
 
-  // Get unique dates
-  const uniqueDates = [...new Set(recentDatesRaw.map(d => d.price_date))].slice(0, 2)
-  const latestDate = uniqueDates[0]
-  const previousDate = uniqueDates.length > 1 ? uniqueDates[1] : null
+    if (error || !batch || batch.length === 0) break
+
+    batch.forEach(r => uniqueDates.add(r.price_date))
+    offset += PAGE_SIZE
+  }
+
+  if (uniqueDates.size === 0) return null
+
+  // Sort dates descending and take first 2
+  const sortedDates = [...uniqueDates].sort((a, b) => b.localeCompare(a))
+  const latestDate = sortedDates[0]
+  const previousDate = sortedDates.length > 1 ? sortedDates[1] : null
 
   console.log(`Price dates for 24h change: latest=${latestDate}, previous=${previousDate}`)
 

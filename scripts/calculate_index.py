@@ -854,16 +854,32 @@ def main():
                 saved = save_constituents(client, index_code, current_month, constituents)
                 print(f"   ✅ {saved} constituents saved")
             else:
-                # Load existing constituents
-                response = client.from_("constituents_monthly") \
-                    .select("item_id, weight, composite_price, liquidity_score, ranking_score") \
-                    .eq("index_code", index_code) \
-                    .eq("month", current_month) \
-                    .order("rank") \
-                    .execute()
-                
+                # Load existing constituents with pagination (Supabase 1000 row limit)
+                all_constituent_rows = []
+                offset = 0
+                page_size = 1000
+
+                while True:
+                    response = client.from_("constituents_monthly") \
+                        .select("item_id, weight, composite_price, liquidity_score, ranking_score") \
+                        .eq("index_code", index_code) \
+                        .eq("month", current_month) \
+                        .order("rank") \
+                        .range(offset, offset + page_size - 1) \
+                        .execute()
+
+                    if not response.data:
+                        break
+
+                    all_constituent_rows.extend(response.data)
+
+                    if len(response.data) < page_size:
+                        break
+
+                    offset += page_size
+
                 constituents = []
-                for row in response.data:
+                for row in all_constituent_rows:
                     # Find card name
                     card_info = next((c for c in all_cards if c["card_id"] == row["item_id"]), None)
                     constituents.append({
@@ -874,7 +890,7 @@ def main():
                         "liquidity_score": float(row["liquidity_score"]) if row["liquidity_score"] else 0,
                         "ranking_score": float(row["ranking_score"]) if row["ranking_score"] else 0,
                     })
-                
+
                 print(f"   📋 {len(constituents)} constituents loaded")
             
             if not constituents:

@@ -52,21 +52,26 @@ A card must meet ALL of these criteria:
 
 #### Liquidity Score (0 to 1)
 
-We calculate a liquidity score using actual sales data:
+We calculate a liquidity score combining three components:
 
-**Primary Method (Volume-Based)**:
-- Uses the last 7 days of sales
-- Recent sales count more (exponential decay)
-- Score = Weighted sales / 50 (capped at 1.0)
+**Formula**: `50% Volume + 30% Listings + 20% Consistency`
 
-```
-Day weights: Today=1.0, -1d=0.7, -2d=0.5, -3d=0.35, -4d=0.25, -5d=0.15, -6d=0.10
-```
+**Component 1: Volume Score (50%)**
+- Uses the last 7 days of sales with exponential decay
+- Recent sales count more (weights: Today=1.0, -1d=0.82, -2d=0.67, ...)
+- Score = Weighted sales / 35 (capped at 1.0)
 
-**Fallback Method (Listings-Based)**:
-- Used when sales data is unavailable
-- Based on number of listings by condition
-- Near Mint listings weighted highest
+**Component 2: Listings Score (30%)**
+- Based on number of active listings by condition
+- Condition-weighted listings / 30 (capped at 1.0)
+
+**Component 3: Consistency Score (20%)**
+- Measures trading regularity over 7 days
+- Score = Days with sales / 5 (capped at 1.0)
+
+**Fallback Method (Listings-Only)**:
+- Used when no volume data is available
+- Based solely on listings: weighted_listings / 30 (capped at 1.0)
 
 #### Condition Weighting
 
@@ -275,6 +280,7 @@ Pokemon Market Indexes are provided for informational and educational purposes o
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 2.2 | Jan 2026 | Liquidity score formula: 50% Volume + 30% Listings + 20% Consistency. Recalculate_liquidity.py now handles this separately from fetch_prices.py. Fixed pagination for RARE_5000 (5000 constituents). |
 | 2.1 | Jan 2026 | J-2 strategy for guaranteed volume data, rebalancing moved to 3rd of month |
 | 2.0 | Jan 2026 | Liquidity-Adjusted Price-Weighted, Method D double criteria (avg + days), 70% matching threshold |
 | 1.0 | Dec 2025 | Initial methodology |

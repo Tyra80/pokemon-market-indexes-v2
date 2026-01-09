@@ -127,16 +127,32 @@ def calculate_for_date(client, price_date: str, force_rebalance: bool = False) -
             # Save constituents
             save_constituents(client, index_code, current_month, constituents)
         else:
-            # Load existing constituents
-            response = client.from_("constituents_monthly") \
-                .select("item_id, weight, composite_price, liquidity_score, ranking_score") \
-                .eq("index_code", index_code) \
-                .eq("month", current_month) \
-                .order("rank") \
-                .execute()
+            # Load existing constituents with pagination (Supabase 1000 row limit)
+            all_constituent_rows = []
+            offset = 0
+            page_size = 1000
+
+            while True:
+                response = client.from_("constituents_monthly") \
+                    .select("item_id, weight, composite_price, liquidity_score, ranking_score") \
+                    .eq("index_code", index_code) \
+                    .eq("month", current_month) \
+                    .order("rank") \
+                    .range(offset, offset + page_size - 1) \
+                    .execute()
+
+                if not response.data:
+                    break
+
+                all_constituent_rows.extend(response.data)
+
+                if len(response.data) < page_size:
+                    break
+
+                offset += page_size
 
             constituents = []
-            for row in response.data:
+            for row in all_constituent_rows:
                 card_info = next((c for c in all_cards if c["card_id"] == row["item_id"]), None)
                 constituents.append({
                     "card_id": row["item_id"],
@@ -287,19 +303,33 @@ def main():
         change = f"{row['change_1d']:+.2f}%" if row.get('change_1d') else "N/A"
         print(f"      {row['index_code']:<10} | {row['value_date']} | {row['index_value']:>8.2f} | {change:>8}")
 
-    # Check rebalancing
+    # Check rebalancing - use count queries per index/month for accurate counts
     print("\n   📋 Monthly constituents:")
-    response = client.from_("constituents_monthly") \
-        .select("index_code, month, item_id", count="exact") \
+    from collections import defaultdict
+    month_counts = defaultdict(dict)
+
+    # Get distinct months first
+    months_response = client.from_("constituents_monthly") \
+        .select("month") \
         .execute()
+    months = sorted(list(set(r["month"] for r in months_response.data))) if months_response.data else []
 
-    from collections import Counter
-    month_counts = Counter()
-    for row in response.data:
-        month_counts[(row["month"], row["index_code"])] += 1
+    for month in months:
+        for index_code in ["RARE_100", "RARE_500", "RARE_5000"]:
+            response = client.from_("constituents_monthly") \
+                .select("item_id", count="exact") \
+                .eq("index_code", index_code) \
+                .eq("month", month) \
+                .limit(1) \
+                .execute()
+            count = response.count if response.count else 0
+            if count > 0:
+                month_counts[month][index_code] = count
 
-    for (month, index_code), count in sorted(month_counts.items()):
-        print(f"      {month} | {index_code:<10} | {count} constituents")
+    for month in sorted(month_counts.keys()):
+        for index_code in ["RARE_100", "RARE_500", "RARE_5000"]:
+            if index_code in month_counts[month]:
+                print(f"      {month} | {index_code:<10} | {month_counts[month][index_code]} constituents")
 
     print()
     print_success("Backfill complete!")

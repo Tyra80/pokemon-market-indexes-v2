@@ -125,7 +125,7 @@ def check_constituents(client) -> tuple[bool, str, dict]:
         all_ok = True
         issues = []
 
-        for index_code in ["RARE_100", "RARE_500", "RARE_ALL"]:
+        for index_code in ["RARE_100", "RARE_500", "RARE_5000"]:
             response = client.from_("constituents_monthly") \
                 .select("item_id, weight") \
                 .eq("index_code", index_code) \

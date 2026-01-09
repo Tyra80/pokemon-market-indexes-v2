@@ -60,17 +60,17 @@ export default function PokemonMarketDashboard() {
           }
         }
 
-        const [rare100, rare500, rareAll] = await Promise.all([
+        const [rare100, rare500, rare5000] = await Promise.all([
           getConstituents('RARE_100'),
           getConstituents('RARE_500'),
-          getConstituents('RARE_ALL')
+          getConstituents('RARE_5000')
         ]);
 
-        if (rare100 || rare500 || rareAll) {
+        if (rare100 || rare500 || rare5000) {
           setConstituents({
             RARE_100: rare100 || MOCK_CONSTITUENTS.RARE_100,
             RARE_500: rare500 || MOCK_CONSTITUENTS.RARE_500,
-            RARE_ALL: rareAll || MOCK_CONSTITUENTS.RARE_ALL
+            RARE_5000: rare5000 || MOCK_CONSTITUENTS.RARE_5000
           });
         }
 
@@ -126,7 +126,7 @@ export default function PokemonMarketDashboard() {
       case 'cards':
         return (
           <AllCardsPage
-            allCards={allCards || MOCK_CONSTITUENTS.RARE_ALL}
+            allCards={allCards || MOCK_CONSTITUENTS.RARE_5000}
             onCardClick={handleCardClick}
             selectedCard={selectedCard}
             loading={loading}

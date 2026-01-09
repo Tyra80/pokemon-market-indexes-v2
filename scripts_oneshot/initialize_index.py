@@ -345,7 +345,7 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
 
     Args:
         cards: List of cards to select from
-        index_code: Index code (RARE_100, RARE_500, RARE_ALL)
+        index_code: Index code (RARE_100, RARE_500, RARE_5000)
         client: Supabase client
         price_date: Date for price data
     """
@@ -400,7 +400,7 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
     # Sort by ranking score (price × liquidity)
     eligible.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
 
-    # Select top N (or all for RARE_ALL)
+    # Select top N
     size = config.get("size")
     if size:
         return eligible[:size]
@@ -559,7 +559,7 @@ def main():
         
         results = {}
         
-        for index_code in ["RARE_100", "RARE_500", "RARE_ALL"]:
+        for index_code in ["RARE_100", "RARE_500", "RARE_5000"]:
             print(f"\n   {'='*50}")
             print(f"   📈 {index_code}")
             print(f"   {'='*50}")

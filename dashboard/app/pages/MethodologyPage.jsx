@@ -105,7 +105,7 @@ const MethodologyPage = () => {
           {[
             { code: 'RARE_100', name: 'RARE 100', desc: 'Top 100 most valuable and liquid cards (blue-chip).' },
             { code: 'RARE_500', name: 'RARE 500', desc: 'Top 500 cards for broader market view.' },
-            { code: 'RARE_ALL', name: 'RARE ALL', desc: 'All eligible cards meeting liquidity requirements.' }
+            { code: 'RARE_5000', name: 'RARE 5000', desc: 'Top 5000 cards for comprehensive market coverage.' }
           ].map(({ code, name, desc }) => (
             <div key={code} style={{
               background: colors.bg.card,

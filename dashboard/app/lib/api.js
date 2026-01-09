@@ -94,7 +94,7 @@ export async function getLatestIndexValues() {
     .from('index_values_daily')
     .select('*')
     .eq('value_date', latestDate.value_date)
-    .in('index_code', ['RARE_100', 'RARE_500', 'RARE_ALL'])
+    .in('index_code', ['RARE_100', 'RARE_500', 'RARE_5000'])
   
   if (error) {
     console.error('Error fetching latest index values:', error)
@@ -126,13 +126,13 @@ export async function getAllIndexHistory(days = 90) {
   if (!data) return null
   
   // Filter by index codes
-  const filtered = data.filter(row => ['RARE_100', 'RARE_500', 'RARE_ALL'].includes(row.index_code))
-  
+  const filtered = data.filter(row => ['RARE_100', 'RARE_500', 'RARE_5000'].includes(row.index_code))
+
   // Group by index_code
   const byIndex = {
     RARE_100: [],
     RARE_500: [],
-    RARE_ALL: []
+    RARE_5000: []
   }
   
   filtered.forEach(row => {
@@ -233,7 +233,7 @@ export async function getConstituents(indexCode) {
       indexCode: indexCode,
       inRare100: indexCode === 'RARE_100',
       inRare500: indexCode === 'RARE_100' || indexCode === 'RARE_500',
-      inRareAll: true
+      inRare5000: true
     }
   })
 
@@ -502,7 +502,7 @@ export async function getAllEligibleCards() {
       cardIndexes[c.item_id] = {
         inRare100: false,
         inRare500: false,
-        inRareAll: false,
+        inRare5000: false,
         weight: 0,
         rank: 999
       }
@@ -519,9 +519,9 @@ export async function getAllEligibleCards() {
         cardIndexes[c.item_id].rank = c.rank || 999
       }
     }
-    if (c.index_code === 'RARE_ALL') {
-      cardIndexes[c.item_id].inRareAll = true
-      // Only set weight/rank from RARE_ALL if not already in RARE_100 or RARE_500
+    if (c.index_code === 'RARE_5000') {
+      cardIndexes[c.item_id].inRare5000 = true
+      // Only set weight/rank from RARE_5000 if not already in RARE_100 or RARE_500
       if (!cardIndexes[c.item_id].inRare100 && !cardIndexes[c.item_id].inRare500) {
         cardIndexes[c.item_id].weight = c.weight || 0
         cardIndexes[c.item_id].rank = c.rank || 999
@@ -556,7 +556,7 @@ export async function getAllEligibleCards() {
   // Merger
   const result = cards.map(card => {
     const price = pricesMap[card.card_id] || {}
-    const indexes = cardIndexes[card.card_id] || { inRare100: false, inRare500: false, inRareAll: false, weight: 0, rank: 999 }
+    const indexes = cardIndexes[card.card_id] || { inRare100: false, inRare500: false, inRare5000: false, weight: 0, rank: 999 }
 
     return {
       id: card.card_id,

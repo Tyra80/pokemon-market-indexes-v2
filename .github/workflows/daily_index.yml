@@ -10,7 +10,7 @@
 # - Example: On Jan 7th, index is calculated with Jan 5th prices
 #
 # Features:
-# - Daily index calculation (RARE_100, RARE_500, RARE_ALL)
+# - Daily index calculation (RARE_100, RARE_500, RARE_5000)
 # - Automatic monthly rebalancing on 1st of month
 # - Smart liquidity (B+C+D method with volume decay)
 # ============================================================

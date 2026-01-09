@@ -21,7 +21,7 @@ If it reads **95**, the market has declined 5%.
 |-------|---------------|---------|
 | **RARE_100** | Top 100 | Blue-chip cards - the most valuable and liquid |
 | **RARE_500** | Top 500 | Broader market view |
-| **RARE_ALL** | All eligible | Complete market coverage |
+| **RARE_5000** | Top 5000 | Comprehensive market coverage |
 
 ---
 

@@ -482,7 +482,7 @@ def main():
             current_month = month
             
             # Process each index
-            for index_code in ["RARE_100", "RARE_500", "RARE_ALL"]:
+            for index_code in ["RARE_100", "RARE_500", "RARE_5000"]:
                 # Get constituents for current month
                 constituents = get_constituents_for_month(client, index_code, month)
                 

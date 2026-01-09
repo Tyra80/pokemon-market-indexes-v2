@@ -421,38 +421,46 @@ async function fetchLatestPricesByCardIds(cardIds) {
   }
 
   // Fetch 30-day volume for each card
+  // Use smaller batches since each card has ~10 days of data (100 cards × 10 dates = 1000 rows = Supabase limit)
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 32) // A bit more to account for D-2
   const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
 
-  let volumeData = []
-  for (let i = 0; i < cardIds.length; i += BATCH_SIZE) {
-    const batchIds = cardIds.slice(i, i + BATCH_SIZE)
+  const volumeMap = {}
+  const VOLUME_BATCH_SIZE = 50 // Smaller batch: 50 cards × 10 dates = 500 rows (under 1000 limit)
 
-    const { data, error } = await supabase
-      .from('card_prices_daily')
-      .select('card_id, daily_volume')
-      .in('card_id', batchIds)
-      .gte('price_date', thirtyDaysAgoStr)
+  for (let i = 0; i < cardIds.length; i += VOLUME_BATCH_SIZE) {
+    const batchIds = cardIds.slice(i, i + VOLUME_BATCH_SIZE)
 
-    if (error) {
-      console.error('Error fetching volume data:', error)
-      continue
-    }
+    // Paginate within each batch to handle Supabase's 1000 row limit
+    let batchOffset = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('card_prices_daily')
+        .select('card_id, daily_volume')
+        .in('card_id', batchIds)
+        .gte('price_date', thirtyDaysAgoStr)
+        .range(batchOffset, batchOffset + 999)
 
-    if (data) {
-      volumeData = volumeData.concat(data)
+      if (error) {
+        console.error('Error fetching volume data:', error)
+        break
+      }
+
+      if (!data || data.length === 0) break
+
+      // Aggregate volumes
+      data.forEach(v => {
+        if (!volumeMap[v.card_id]) {
+          volumeMap[v.card_id] = 0
+        }
+        volumeMap[v.card_id] += parseFloat(v.daily_volume || 0)
+      })
+
+      if (data.length < 1000) break
+      batchOffset += 1000
     }
   }
-
-  // Aggregate 30-day volume per card
-  const volumeMap = {}
-  volumeData.forEach(v => {
-    if (!volumeMap[v.card_id]) {
-      volumeMap[v.card_id] = 0
-    }
-    volumeMap[v.card_id] += parseFloat(v.daily_volume || 0)
-  })
 
   // Enhance latest prices with change and monthly volume
   return latestPrices.map(p => {

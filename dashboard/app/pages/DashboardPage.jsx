@@ -9,7 +9,7 @@ import { ErrorBoundary, SkeletonCard, SkeletonChart, SkeletonTable } from '../co
 const INDEX_CONFIGS = [
   { code: 'RARE_100', name: 'Rare Cards Top 100' },
   { code: 'RARE_500', name: 'Rare Cards Top 500' },
-  { code: 'RARE_ALL', name: 'Rare Cards All Liquid' }
+  { code: 'RARE_5000', name: 'Rare Cards Top 5000' }
 ];
 
 const DashboardPage = ({

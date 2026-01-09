@@ -11,7 +11,7 @@ Method:
 Calculated indexes:
 - RARE_100: Top 100 rare cards by score (price × liquidity)
 - RARE_500: Top 500 rare cards
-- RARE_ALL: All liquid rare cards
+- RARE_5000: Top 5000 rare cards
 
 Usage:
     python scripts/calculate_index.py              # Normal daily calculation
@@ -389,12 +389,12 @@ def select_constituents(cards: list, index_code: str, client=None, price_date: s
     # Sort by ranking score descending
     eligible.sort(key=lambda x: x.get("ranking_score", 0), reverse=True)
 
-    # Select top N (or all for RARE_ALL)
+    # Select top N
     size = config.get("size")
     if size:
         return eligible[:size]
     else:
-        return eligible  # RARE_ALL: all eligible cards
+        return eligible
 
 
 def calculate_weights(constituents: list) -> list:
@@ -818,7 +818,7 @@ def main():
         
         results = {}
         
-        for index_code in ["RARE_100", "RARE_500", "RARE_ALL"]:
+        for index_code in ["RARE_100", "RARE_500", "RARE_5000"]:
             print(f"\n   {'='*50}")
             print(f"   📈 {index_code}")
             print(f"   {'='*50}")

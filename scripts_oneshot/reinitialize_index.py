@@ -239,7 +239,7 @@ def main():
 
     if not args.dry_run:
         # Show final stats
-        for index_code in ["RARE_100", "RARE_500", "RARE_ALL"]:
+        for index_code in ["RARE_100", "RARE_500", "RARE_5000"]:
             response = client.from_("index_values_daily") \
                 .select("value_date, index_value") \
                 .eq("index_code", index_code) \

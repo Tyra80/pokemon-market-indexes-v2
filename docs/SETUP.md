@@ -313,7 +313,7 @@ python scripts/calculate_index.py --rebalance
 ```
 📈 RARE_100 : 100.00 (100 constituents)
 📈 RARE_500 : 100.00 (500 constituents)
-📈 RARE_ALL : 100.00 (xxxx constituents)
+📈 RARE_5000 : 100.00 (5000 constituents)
 📊 Liquidity: XX volume_decay | XX listings_fallback
 ```
 
@@ -429,7 +429,7 @@ If you want to receive notifications:
 - [ ] Supabase: fx_rates_daily contains data
 - [ ] Supabase: cards contains ~26,000 rows
 - [ ] Supabase: card_prices_daily contains data with volume
-- [ ] Supabase: index_values_daily contains RARE_100, RARE_500, RARE_ALL
+- [ ] Supabase: index_values_daily contains RARE_100, RARE_500, RARE_5000
 - [ ] GitHub: Repo created and code pushed
 - [ ] GitHub: 4 secrets configured
 - [ ] GitHub Actions: FX workflow tested manually ✅

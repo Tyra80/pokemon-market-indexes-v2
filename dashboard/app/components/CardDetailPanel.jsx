@@ -225,8 +225,8 @@ const CardDetailPanel = ({ card, onClose, priceHistory, loadingHistory }) => {
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {card.inRare100 && <IndexBadge code="RARE_100" />}
           {card.inRare500 && <IndexBadge code="RARE_500" />}
-          {card.inRareAll && <IndexBadge code="RARE_ALL" />}
-          {!card.inRare100 && !card.inRare500 && !card.inRareAll && (
+          {card.inRare5000 && <IndexBadge code="RARE_5000" />}
+          {!card.inRare100 && !card.inRare500 && !card.inRare5000 && (
             <span style={{ color: colors.text.muted, fontSize: '0.8rem' }}>None currently</span>
           )}
         </div>

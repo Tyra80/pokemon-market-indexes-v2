@@ -27,7 +27,7 @@ export const colors = {
   chart: {
     RARE_100: '#f5c842',
     RARE_500: '#4a9eff',
-    RARE_ALL: '#a855f7'
+    RARE_5000: '#a855f7'
   }
 };
 

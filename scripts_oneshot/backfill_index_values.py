@@ -104,7 +104,7 @@ def calculate_for_date(client, price_date: str, force_rebalance: bool = False) -
 
     results = {}
 
-    for index_code in ["RARE_100", "RARE_500", "RARE_ALL"]:
+    for index_code in ["RARE_100", "RARE_500", "RARE_5000"]:
         # Rebalancing if needed
         if need_rebalance:
             # Filter immature cards

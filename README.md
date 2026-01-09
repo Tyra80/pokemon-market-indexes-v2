@@ -8,7 +8,7 @@ Automated market index calculation system for Pokemon TCG rare cards.
 |-------|-------------|----------|
 | **RARE_100** | Top 100 rare cards | Cards with rarity ≥ Rare |
 | **RARE_500** | Top 500 rare cards | Cards with rarity ≥ Rare |
-| **RARE_ALL** | All liquid rare cards | Cards with rarity ≥ Rare |
+| **RARE_5000** | Top 5000 rare cards | Cards with rarity ≥ Rare |
 
 ## 🏗️ Architecture
 

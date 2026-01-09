@@ -181,44 +181,59 @@ def extract_psa10_data(card_data: dict, price_date: str) -> dict | None:
     }
 
 
-def fetch_psa10_batch(card_ids: list[str], price_date: str) -> tuple[list[dict], int, int]:
+def fetch_psa10_for_set(set_name: str, price_date: str, constituent_ids: set[str]) -> tuple[list[dict], dict, int]:
     """
-    Fetches PSA 10 data for a batch of cards.
+    Fetches PSA 10 data for all cards in a set.
 
     Args:
-        card_ids: List of card IDs to fetch
+        set_name: Set name to fetch
         price_date: Date for the price record
+        constituent_ids: Set of card IDs that are RARE_500 constituents (to filter)
 
     Returns:
-        tuple: (psa10_data_list, cards_with_data, credits_remaining)
+        tuple: (psa10_data_list, stats_dict, credits_remaining)
     """
-    # Join IDs with comma for batch request
-    ids_param = ",".join(card_ids)
-
     data, credits = api_request("/cards", {
-        "ids": ids_param,
+        "set": set_name,
+        "fetchAllInSet": "true",
         "includeEbay": "true",
     })
 
+    stats = {"total": 0, "with_psa10": 0, "constituents_matched": 0}
+
     if data is None:
-        return [], 0, credits
+        return [], stats, credits
 
     cards = data.get("data", [])
     if isinstance(cards, dict):
         cards = [cards]
 
+    stats["total"] = len(cards)
+
     results = []
     for card in cards:
+        card_id = card.get("id")
+        if not card_id:
+            continue
+
+        # Only process cards that are in our RARE_500 constituents
+        if card_id not in constituent_ids:
+            continue
+
+        stats["constituents_matched"] += 1
+
         psa10_data = extract_psa10_data(card, price_date)
         if psa10_data:
             results.append(psa10_data)
+            stats["with_psa10"] += 1
 
-    return results, len(results), credits
+    return results, stats, credits
 
 
-def get_rare500_constituents(client) -> list[str]:
+def get_rare500_constituents(client) -> set[str]:
     """
     Gets card IDs from current RARE_500 constituents.
+    Returns a set for O(1) lookup.
     """
     current_month = date.today().replace(day=1).strftime("%Y-%m-%d")
 
@@ -237,7 +252,31 @@ def get_rare500_constituents(client) -> list[str]:
             .eq("month", prev_month.strftime("%Y-%m-%d")) \
             .execute()
 
-    return [row["item_id"] for row in response.data] if response.data else []
+    return {row["item_id"] for row in response.data} if response.data else set()
+
+
+def get_sets_for_constituents(client, constituent_ids: set[str]) -> list[str]:
+    """
+    Gets the unique set names for the given constituent card IDs.
+    """
+    # Get set_ids for constituents
+    response = client.from_("cards") \
+        .select("set_id") \
+        .in_("card_id", list(constituent_ids)) \
+        .execute()
+
+    if not response.data:
+        return []
+
+    set_ids = list({row["set_id"] for row in response.data if row.get("set_id")})
+
+    # Get set names
+    response = client.from_("sets") \
+        .select("name") \
+        .in_("set_id", set_ids) \
+        .execute()
+
+    return [row["name"] for row in response.data] if response.data else []
 
 
 def ensure_psa_tables_exist(client) -> bool:
@@ -257,7 +296,7 @@ def ensure_psa_tables_exist(client) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch PSA 10 prices from eBay")
-    parser.add_argument("--limit", type=int, help="Limit number of cards to fetch")
+    parser.add_argument("--limit-sets", type=int, help="Limit number of sets to fetch")
     parser.add_argument("--dry-run", action="store_true", help="Don't save to database")
     args = parser.parse_args()
 
@@ -267,8 +306,8 @@ def main():
     print_header("Pokemon Market Indexes - Fetch PSA 10 Prices")
     print(f"Target date: {price_date}")
     print(f"API cost: 2 credits/card (with eBay data)")
-    if args.limit:
-        print(f"Limit: {args.limit} cards")
+    if args.limit_sets:
+        print(f"Limit: {args.limit_sets} sets")
     if args.dry_run:
         print("DRY RUN: No data will be saved")
     print()
@@ -303,39 +342,41 @@ def main():
 
     # Get RARE_500 constituents
     print_step(4, "Loading RARE_500 constituents")
-    card_ids = get_rare500_constituents(client)
-    if not card_ids:
+    constituent_ids = get_rare500_constituents(client)
+    if not constituent_ids:
         print_error("No RARE_500 constituents found!")
         return
-    print_success(f"Found {len(card_ids)} constituents")
+    print_success(f"Found {len(constituent_ids)} constituents")
+
+    # Get sets that contain our constituents
+    print_step(5, "Finding sets with constituents")
+    set_names = get_sets_for_constituents(client, constituent_ids)
+    if not set_names:
+        print_error("No sets found for constituents!")
+        return
+    print_success(f"Found {len(set_names)} sets containing constituents")
 
     # Apply limit if specified
-    if args.limit:
-        card_ids = card_ids[:args.limit]
-        print(f"   Limited to {len(card_ids)} cards for testing")
+    if args.limit_sets:
+        set_names = set_names[:args.limit_sets]
+        print(f"   Limited to {len(set_names)} sets for testing")
 
     # Log run
     run_id = log_run_start(client, "fetch_psa10_prices") if not args.dry_run else None
 
-    # Fetch PSA 10 data in batches
-    print_step(5, f"Fetching PSA 10 data ({len(card_ids)} cards)")
+    # Fetch PSA 10 data by set
+    print_step(6, f"Fetching PSA 10 data ({len(set_names)} sets)")
 
     all_psa10_data = []
     total_with_data = 0
+    total_constituents_matched = 0
     last_credits = initial_credits
     credits_exhausted = False
 
-    # Process in batches
-    num_batches = (len(card_ids) + API_BATCH_SIZE - 1) // API_BATCH_SIZE
+    for i, set_name in enumerate(set_names, 1):
+        print(f"\n   [{i}/{len(set_names)}] {set_name}")
 
-    for batch_num in range(num_batches):
-        start_idx = batch_num * API_BATCH_SIZE
-        end_idx = min(start_idx + API_BATCH_SIZE, len(card_ids))
-        batch_ids = card_ids[start_idx:end_idx]
-
-        print_progress(f"Batch {batch_num + 1}/{num_batches}", batch_num + 1, num_batches)
-
-        psa10_data, with_data, credits = fetch_psa10_batch(batch_ids, price_date)
+        psa10_data, stats, credits = fetch_psa10_for_set(set_name, price_date, constituent_ids)
 
         if credits == 0:
             print_error("API credits exhausted!")
@@ -346,21 +387,27 @@ def main():
             last_credits = credits
 
         all_psa10_data.extend(psa10_data)
-        total_with_data += with_data
+        total_with_data += stats["with_psa10"]
+        total_constituents_matched += stats["constituents_matched"]
+
+        if stats["constituents_matched"] > 0:
+            print(f"      Constituents: {stats['constituents_matched']}, PSA 10 data: {stats['with_psa10']}")
 
         # Rate limit pause
         time.sleep(0.5)
 
     # Summary of fetch
     print()
-    print(f"   Cards fetched: {len(card_ids)}")
+    print(f"   Sets processed: {len(set_names)}")
+    print(f"   Constituents matched: {total_constituents_matched}/{len(constituent_ids)}")
     print(f"   Cards with PSA 10 data: {total_with_data}")
-    print(f"   Coverage: {total_with_data * 100 / len(card_ids):.1f}%")
+    if total_constituents_matched > 0:
+        print(f"   PSA 10 coverage: {total_with_data * 100 / total_constituents_matched:.1f}%")
     print(f"   Credits remaining: {last_credits:,}")
 
     # Save to database
     if not args.dry_run and all_psa10_data:
-        print_step(6, "Saving to database")
+        print_step(7, "Saving to database")
 
         # First, ensure psa_cards entries exist
         psa_cards_data = [
@@ -385,15 +432,16 @@ def main():
         log_run_end(client, run_id, "success" if not credits_exhausted else "partial",
                     records_processed=result['saved'],
                     details={
-                        "cards_fetched": len(card_ids),
+                        "sets_processed": len(set_names),
+                        "constituents_matched": total_constituents_matched,
                         "cards_with_data": total_with_data,
                         "credits_remaining": last_credits,
                     })
     elif args.dry_run:
-        print_step(6, "Dry run - skipping database save")
+        print_step(7, "Dry run - skipping database save")
 
     # Show top cards by PSA 10 liquidity
-    print_step(7, "Top PSA 10 cards by liquidity")
+    print_step(8, "Top PSA 10 cards by liquidity")
     top_cards = sorted(all_psa10_data, key=lambda x: x.get("liquidity_score", 0), reverse=True)[:10]
 
     for i, card in enumerate(top_cards, 1):
@@ -411,18 +459,20 @@ def main():
         print(f"   {i:2}. {name:<30} ${median:>8.2f} | vol={volume:.2f}/d | {conf:<6} | liq={liq:.2f}")
 
     # Show cards without PSA 10 data
-    cards_without_data = len(card_ids) - total_with_data
+    cards_without_data = total_constituents_matched - total_with_data
     if cards_without_data > 0:
         print()
-        print_warning(f"{cards_without_data} cards have no PSA 10 sales data")
+        print_warning(f"{cards_without_data} constituents have no PSA 10 sales data")
         print("   These cards likely have low PSA 10 market activity")
 
     print()
     print_header("SUMMARY")
     print(f"   Source: RARE_500 constituents")
-    print(f"   Cards checked: {len(card_ids)}")
-    print(f"   Cards with PSA 10 data: {total_with_data} ({total_with_data * 100 / len(card_ids):.1f}%)")
-    print(f"   Credits used: ~{len(card_ids) * 2}")
+    print(f"   Sets processed: {len(set_names)}")
+    print(f"   Constituents matched: {total_constituents_matched}/{len(constituent_ids)}")
+    print(f"   Cards with PSA 10 data: {total_with_data}")
+    if total_constituents_matched > 0:
+        print(f"   PSA 10 coverage: {total_with_data * 100 / total_constituents_matched:.1f}%")
     print(f"   Credits remaining: {last_credits:,}")
     print()
 

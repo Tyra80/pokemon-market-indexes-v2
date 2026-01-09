@@ -27,7 +27,7 @@ const generateIndexData = (baseValue, volatility, trend, days = 90) => {
 export const MOCK_INDEX_DATA = {
   RARE_100: generateIndexData(100, 3, 0.15),
   RARE_500: generateIndexData(100, 2, 0.10),
-  RARE_ALL: generateIndexData(100, 1.5, 0.08)
+  RARE_5000: generateIndexData(100, 1.5, 0.08)
 };
 
 const generateMockConstituents = (count) => {
@@ -51,15 +51,15 @@ const generateMockConstituents = (count) => {
     rank: i + 1,
     tcgplayerId: `${400000 + i}`,
     inRare100: i < 100,
-    inRare500: true,
-    inRareAll: true
+    inRare500: i < 500,
+    inRare5000: true
   }));
 };
 
 export const MOCK_CONSTITUENTS = {
   RARE_100: generateMockConstituents(100),
-  RARE_500: generateMockConstituents(150),
-  RARE_ALL: generateMockConstituents(150)
+  RARE_500: generateMockConstituents(500),
+  RARE_5000: generateMockConstituents(500)
 };
 
 export const generateCardPriceHistoryMock = (currentPrice, days = 180) => {

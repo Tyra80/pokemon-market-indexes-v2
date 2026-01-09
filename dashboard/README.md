@@ -47,7 +47,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 ## Features
 
-- 📈 Daily index values (RARE_100, RARE_500, RARE_ALL)
+- 📈 Daily index values (RARE_100, RARE_500, RARE_5000)
 - 📋 Index constituents with filtering
 - 🔍 Individual card details with price history
 - 📖 Full methodology documentation

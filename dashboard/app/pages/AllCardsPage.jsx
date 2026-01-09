@@ -85,7 +85,7 @@ const AllCardsPage = ({ allCards, onCardClick, selectedCard, loading }) => {
               Index Constituents
             </h4>
             <p style={{ margin: 0, color: colors.text.secondary, fontSize: '0.875rem', lineHeight: 1.6 }}>
-              This list shows all cards currently included in at least one index (RARE_100, RARE_500, or RARE_ALL). Cards are sorted by their index rank.
+              This list shows all cards currently included in at least one index (RARE_100, RARE_500, or RARE_5000). Cards are sorted by their index rank.
             </p>
           </div>
         </div>
@@ -242,7 +242,7 @@ const AllCardsPage = ({ allCards, onCardClick, selectedCard, loading }) => {
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
                   {card.inRare100 && <IndexBadge code="RARE_100" small />}
                   {card.inRare500 && !card.inRare100 && <IndexBadge code="RARE_500" small />}
-                  {card.inRareAll && !card.inRare100 && !card.inRare500 && <IndexBadge code="RARE_ALL" small />}
+                  {card.inRare5000 && !card.inRare100 && !card.inRare500 && <IndexBadge code="RARE_5000" small />}
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -55,12 +55,12 @@ INDEX_CONFIG = {
         # Selection: Top 500 by ranking_score (price × liquidity)
         # Eligibility: Method D (avg_volume >= 0.5/day AND trading_days >= 10)
     },
-    "RARE_ALL": {
+    "RARE_5000": {
         "type": "card",
-        "size": None,  # All cards meeting Method D criteria
+        "size": 5000,
         "min_rarity": "Rare",
         "maturity_days": 30,
-        # Selection: All cards passing Method D filter
+        # Selection: Top 5000 by ranking_score (price × liquidity)
         # Eligibility: Method D (avg_volume >= 0.5/day AND trading_days >= 10)
     },
 }
